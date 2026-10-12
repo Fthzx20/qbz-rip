@@ -1,0 +1,44 @@
+# Bytecode & Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# User Configuration & Authentication Tokens (Never commit credentials)
+.qbz_rip/
+config.json
+*.env
+.env*
+!*.env.example
+
+# Downloaded Audio & Media Files
+*.flac
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.pdf
+*.lrc
+*.tmp
+checksums.md5
+cover.jpg
+cover.png
+
+# IDE & Operating System Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,6 @@
+customtkinter>=5.2.0
+aiohttp>=3.9.0
+mutagen>=1.47.0
+Pillow>=10.0.0
+imageio-ffmpeg>=0.4.9
+packaging>=23.0
