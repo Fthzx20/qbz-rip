@@ -1,7 +1,7 @@
 <div align="center">
 
 # ⚡ QBZ RIP
-### The Ultimate 24-bit / 192kHz Studio Master Qobuz Downloader
+### The Ultimate 24-bit / 192kHz Studio Master Q-Buz Downloader
 
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue.svg?style=for-the-badge&logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-success.svg?style=for-the-badge)](LICENSE)
@@ -9,10 +9,10 @@
 [![Audio: 24-bit/192kHz FLAC](https://img.shields.io/badge/Audio-24--bit%2F192kHz%20FLAC-ffb703.svg?style=for-the-badge)](https://en.wikipedia.org/wiki/FLAC)
 [![Platform: Windows / macOS / Linux](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=for-the-badge)]()
 
-A high-performance, asynchronous, bit-perfect desktop application built exclusively for **Qobuz**.  
+A high-performance, asynchronous, bit-perfect desktop application built exclusively for **Q-Buz**.  
 Designed for audiophiles who demand true, uncompressed **24-bit / 192kHz Studio Master** quality straight from the source.
 
-[Features](#-features--superpowers) • [Audio Formats](#-qobuz-audio-tiers) • [Spectrogram Analysis & Label Upsampling](#-spectrogram-analysis--the-label-upsampling-phenomenon) • [Installation](#-installation) • [Authentication](#-qobuz-authentication-guide) • [Multi-User Login](#-multi-user--account-switching) • [Usage Guide](#-how-to-use) • [Configuration](#-configuration) • [Troubleshooting](#-troubleshooting--faq)
+[Features](#-features--superpowers) • [Audio Formats](#-q-buz-audio-tiers) • [Spectrogram Analysis & Label Upsampling](#-spectrogram-analysis--the-label-upsampling-phenomenon) • [Installation](#-installation) • [Authentication](#-q-buz-authentication-guide) • [Multi-User Login](#-multi-user--account-switching) • [Usage Guide](#-how-to-use) • [Configuration](#-configuration) • [Troubleshooting](#-troubleshooting--faq)
 
 </div>
 
@@ -20,12 +20,12 @@ Designed for audiophiles who demand true, uncompressed **24-bit / 192kHz Studio 
 
 ## 🌟 Features & Superpowers
 
-* 👑 **True 24-bit / 192kHz Studio Master FLAC**: Downloads direct, untouched FLAC audio streams straight from Qobuz CDN servers. No transcoding, zero DSP manipulation, zero loss, and zero forced upscaling.
+* 👑 **True 24-bit / 192kHz Studio Master FLAC**: Downloads direct, untouched FLAC audio streams straight from Q-Buz CDN servers. No transcoding, zero DSP manipulation, zero loss, and zero forced upscaling.
 * 🎵 **Instant 30s Audio Preview Player**: Listen to 30-second high-fidelity sample clips directly inside search results using the interactive `▶ Preview` / `⏹ Stop` player before downloading.
-* 📑 **Official Qobuz Digital Booklet Download (PDF)**: Automatically detects and downloads high-resolution official digital liner notes and booklets (`Digital Booklet.pdf`) included in album goodies directly into the album folder.
+* 📑 **Official Q-Buz Digital Booklet Download (PDF)**: Automatically detects and downloads high-resolution official digital liner notes and booklets (`Digital Booklet.pdf`) included in album goodies directly into the album folder.
 * 🎤 **Auto Synced Lyrics (`.lrc` + Embedded Tags)**: Integrated with the open-source **LRCLIB** database. Automatically generates synchronized `.lrc` files next to audio tracks and embeds Vorbis comments (`LYRICS`, `UNSYNCEDLYRICS`) or ID3 tags (`USLT`).
-* 📋 **Batch URL / Multi-Link Importer**: Paste multiple tracks, albums, or playlists at once from Qobuz, Spotify, Apple Music, Tidal, Deezer, YouTube, SoundCloud, Bandcamp, and Amazon Music, or load links directly from a `.txt` file!
-* 🔗 **Universal Multi-Platform Link Resolver**: Paste URLs from **Spotify**, **Apple Music**, **Tidal**, **Deezer**, **YouTube**, **SoundCloud**, **Bandcamp**, and **Amazon Music** (with automatic HTTP 301/302 redirect resolution for mobile shortlinks like `spotify.link`, `spoti.fi`, `apple.co`, `deezer.page.link`, `on.soundcloud.com`, `a.co`, `amzn.to`) to download matching Studio Master tracks on Qobuz.
+* 📋 **Batch URL / Multi-Link Importer**: Paste multiple tracks, albums, or playlists at once from Q-Buz, Spotify, Apple Music, Tidal, Deezer, YouTube, SoundCloud, Bandcamp, and Amazon Music, or load links directly from a `.txt` file!
+* 🔗 **Universal Multi-Platform Link Resolver**: Paste URLs from **Spotify**, **Apple Music**, **Tidal**, **Deezer**, **YouTube**, **SoundCloud**, **Bandcamp**, and **Amazon Music** (with automatic HTTP 301/302 redirect resolution for mobile shortlinks like `spotify.link`, `spoti.fi`, `apple.co`, `deezer.page.link`, `on.soundcloud.com`, `a.co`, `amzn.to`) to download matching Studio Master tracks on Q-Buz.
 * ⚡ **True Parallel Async Concurrency & HTTP Range Auto-Resume**: Powered by Python's `asyncio` and `aiohttp`. Configure 1 to 5 simultaneous download slots with real-time UI speed and independent progress bars. If a socket timeout or network fluctuation occurs, downloads automatically resume from the last byte via `Range: bytes={downloaded}-` instead of restarting from scratch!
 * 🏷️ **Extended Audiophile Vorbis & ID3 Tagging**: Automatically embeds rich metadata into FLAC tags (`TITLE`, `ARTIST`, `ALBUM`, `ALBUMARTIST`, `TRACKNUMBER`, `TRACKTOTAL`, `DISCNUMBER`, `DISCTOTAL`, `DATE`, `YEAR`, `ISRC`, `COPYRIGHT`, `COMPOSER`, `GENRE`, `COMMENT`) plus maximum resolution embedded front cover art.
 * 🛡️ **Bit-Stream Integrity & `checksums.md5` Generation**: Verifies the downloaded FLAC byte count against CDN headers, validates `STREAMINFO` decoded bit-depth/sample rate with Mutagen, and automatically appends cryptographic MD5 hashes into `checksums.md5` for archival verification.
@@ -48,9 +48,9 @@ Designed for audiophiles who demand true, uncompressed **24-bit / 192kHz Studio 
 
 ---
 
-## 🎼 Qobuz Audio Tiers
+## 🎼 Q-Buz Audio Tiers
 
-Qobuz provides uncompressed lossless audio streams categorized by format IDs:
+Q-Buz provides uncompressed lossless audio streams categorized by format IDs:
 
 | Format ID | Format Name | Resolution / Bitrate | Description |
 | :---: | :--- | :--- :---: | :--- |
@@ -59,7 +59,7 @@ Qobuz provides uncompressed lossless audio streams categorized by format IDs:
 | **6** | **CD Lossless** | **16-bit / 44.1 kHz** | Red Book standard lossless CD FLAC. |
 | **5** | **MP3** | **320 kbps CBR** | High-bitrate standard lossy MP3. |
 
-*Note: An active Qobuz Studio or Sublime subscription is required to stream and download 24-bit Hi-Res and Studio Master files.*
+*Note: An active Q-Buz Studio or Sublime subscription is required to stream and download 24-bit Hi-Res and Studio Master files.*
 
 ---
 
@@ -73,22 +73,22 @@ Here is the transparent, in-depth audio engineering explanation:
 
 ### 1. Does QBZ-RIP Deliver 100% Pure, Bit-Perfect Audio?
 **YES, 100% PURE AND BIT-PERFECT.**  
-`qbz-rip` fetches the raw binary FLAC audio stream directly from Qobuz's official Content Delivery Networks (CDNs: CloudFront/Akamai). 
+`qbz-rip` fetches the raw binary FLAC audio stream directly from Q-Buz's official Content Delivery Networks (CDNs: CloudFront/Akamai). 
 - The application **NEVER** re-encodes, transcodes, downsamples, or applies DSP filtering of any kind.
 - Mutagen directly reads the authentic binary `STREAMINFO` block from the FLAC header.
-- The cryptographic MD5 hash recorded in `checksums.md5` matches the exact binary file hosted on Qobuz CDN servers.
+- The cryptographic MD5 hash recorded in `checksums.md5` matches the exact binary file hosted on Q-Buz CDN servers.
 
 ---
 
 ### 2. Why Do Some Spectrograms ("Spek") Look Cut-Off?
-If the audio stream is 100% bit-perfect from Qobuz, why does Spek show high frequencies stopping abruptly at 20kHz–24kHz? This is determined by the **source studio master provided by the record label**:
+If the audio stream is 100% bit-perfect from Q-Buz, why does Spek show high frequencies stopping abruptly at 20kHz–24kHz? This is determined by the **source studio master provided by the record label**:
 
 #### A. The "Label Upsampling" Phenomenon (Early-Digital Era Masters: 1980s – Early 2000s)
 * During the early digital recording era (late 1980s through the 2000s), almost all recording studios tracked and mixed audio digitally at **16-bit / 44.1kHz** (Red Book CD standard) or **24-bit / 48kHz** (early DAT tape and early Pro Tools systems).
 * According to the **Nyquist-Shannon Sampling Theorem**, the absolute maximum audio frequency that can be represented is half of the sampling rate (the Nyquist limit):
   * Sample rate 44.1 kHz $\rightarrow$ absolute frequency ceiling (Nyquist limit) is **22.05 kHz**.
   * Sample rate 48.0 kHz $\rightarrow$ absolute frequency ceiling (Nyquist limit) is **24.0 kHz**.
-* When major record labels (Universal Music Group, Sony Music, Warner Music, etc.) re-release catalog albums in "Hi-Res Remastered" editions for streaming services (Qobuz, HDtracks, Apple Music), **some labels do not track down and re-digitize original multi-track analog tapes**. Instead, they take the existing 44.1kHz or 48kHz digital master and export it into a 24-bit / 96kHz or 24-bit / 192kHz container file!
+* When major record labels (Universal Music Group, Sony Music, Warner Music, etc.) re-release catalog albums in "Hi-Res Remastered" editions for streaming services (Q-Buz, HDtracks, Apple Music), **some labels do not track down and re-digitize original multi-track analog tapes**. Instead, they take the existing 44.1kHz or 48kHz digital master and export it into a 24-bit / 96kHz or 24-bit / 192kHz container file!
 * **The result:**
   * **Container/File specs:** The FLAC file is genuine 24-bit / 192kHz (150MB–350MB, sample rate of 192,000 samples per second).
   * **Acoustic spectrum (Spek):** The audio frequencies hard-stop at 22.05kHz or 24kHz because the original digital master never contained any ultrasonic content above that frequency. Everything above 24kHz is silence / digital noise floor (-120dB).
@@ -103,7 +103,7 @@ If the audio stream is 100% bit-perfect from Qobuz, why does Spek show high freq
 * Analog magnetic tape possesses natural wide-band frequency response with smooth rolloff and no artificial digital cutoff, yielding a rich, continuous gradient across the entire spectrogram in Spek.
 
 > **💡 Summary & Guarantee for Audiophiles:**  
-> QBZ-RIP guarantees that your downloaded files are **1:1 bit-perfect copies of the master files delivered by the record label to Qobuz**. Any frequency cut-off observed in Spek is inherent to the master provided by the record label (*Label Upsampling* or *Studio Mastering Choices*), not an artifact of QBZ-RIP.
+> QBZ-RIP guarantees that your downloaded files are **1:1 bit-perfect copies of the master files delivered by the record label to Q-Buz**. Any frequency cut-off observed in Spek is inherent to the master provided by the record label (*Label Upsampling* or *Studio Mastering Choices*), not an artifact of QBZ-RIP.
 
 ---
 
@@ -140,16 +140,16 @@ pip install -r requirements.txt
 
 ---
 
-## 🔑 Qobuz Authentication Guide
+## 🔑 Q-Buz Authentication Guide
 
-Because Qobuz blocks direct email & password logins on many modern accounts (particularly accounts created via Google, Apple, or recent registrations), the primary and most reliable method is using your **Web Session Token (`user_auth_token`)**.
+Because Q-Buz blocks direct email & password logins on many modern accounts (particularly accounts created via Google, Apple, or recent registrations), the primary and most reliable method is using your **Web Session Token (`user_auth_token`)**.
 
 ### How to Retrieve Your Web Session Token:
-1. Open your browser (Chrome, Edge, Firefox, Brave) and visit **[play.qobuz.com](https://play.qobuz.com)**.
-2. Log in to your Qobuz account.
+1. Open your browser (Chrome, Edge, Firefox, Brave) and visit the official web player (**play.q-buz.com**).
+2. Log in to your Q-Buz account.
 3. Press **F12** on your keyboard (or right-click anywhere and choose **Inspect**) to open **Developer Tools**.
 4. Navigate to the **Application** tab (in Chrome/Edge) or **Storage** tab (in Firefox).
-5. In the left sidebar, expand **Local Storage** $\rightarrow$ `https://play.qobuz.com`.
+5. In the left sidebar, expand **Local Storage** $\rightarrow$ `https://play.q-buz...` (the web player origin).
 6. Look for the key named **`localuser`**.
 7. In the value column, copy either:
    - The string inside `"token"` or `"userAuthToken"` (e.g. `pssuHJXxS2jl2...`), **OR**
@@ -164,7 +164,7 @@ Because Qobuz blocks direct email & password logins on many modern accounts (par
 ### Scenario A: Switching Accounts on the Same Machine
 1. Go to the **⚙️ Settings** tab.
 2. Click the red **Logout** button. The previous session is cleared immediately.
-3. Copy the token from the new account (via `play.qobuz.com` in the browser).
+3. Copy the token from the new account (via `play.q-buz.com` in the browser).
 4. Paste it into the token field and click **Sign In with Token**.
 5. The identity and subscription tier of the new user will activate instantly.
 
@@ -187,7 +187,7 @@ python -B main.py
 ### 2. Searching & Downloading
 1. In the **🔍 Search** tab, enter:
    - **Song or Artist Name**: e.g. `Daft Punk`, `Billie Eilish`, `Norah Jones`
-   - **Direct Qobuz URL**: e.g. `https://play.qobuz.com/album/0060253786968`
+   - **Direct Q-Buz URL**: e.g. `https://play.q-buz.com/album/0060253786968`
    - **Direct Track / Album ID**: e.g. `15302127` or `0060253786968`
    - **External Streaming Link**: Spotify, Apple Music, Tidal, Deezer, YouTube, SoundCloud, Bandcamp, Amazon Music.
 2. Click **▶ Preview** on search results to hear a 30-second high-fidelity audio clip before downloading.
@@ -218,7 +218,7 @@ Application settings can be managed via the GUI or edited in `~/.qbz_rip/config.
 ```json
 {
     "format_id": 27,
-    "download_directory": "C:\\Users\\YourUsername\\Music\\Qobuz",
+    "download_directory": "C:\\Users\\YourUsername\\Music\\Q-Buz",
     "naming_template": "{artist}/{album}/{track_num} - {title}.{ext}",
     "concurrent_downloads": 3,
     "play_sound_on_complete": true,
@@ -246,11 +246,11 @@ Application settings can be managed via the GUI or edited in `~/.qbz_rip/config.
 
 ## 🛠️ Troubleshooting & FAQ
 
-#### Q: Why do I get `Qobuz API error (400): Invalid or missing app_id parameter`?
-**A:** Qobuz requires an active, matching client `app_id`. The application includes automated recovery:
+#### Q: Why do I get `Q-Buz API error (400): Invalid or missing app_id parameter`?
+**A:** The Q-Buz service requires an active, matching client `app_id`. The application includes automated recovery:
 1. QBZ-RIP automatically scrapes active client App IDs from the official Web Player bundle.
 2. If issues persist, open **⚙️ Settings** and click **🔍 Auto-Detect**.
-3. Or open [play.qobuz.com](https://play.qobuz.com) -> press F12 -> Network tab (filter: `api.json/0.2`), inspect a request header, copy the **`X-App-Id`** value (9 digits), and paste it into Settings.
+3. Or open the web player (`play.q-buz.com`) -> press F12 -> Network tab (filter: `api.json/0.2`), inspect a request header, copy the **`X-App-Id`** value (9 digits), and paste it into Settings.
 
 #### Q: Why do I see `ValueError: bad marshal data` when running with Python 3.14?
 **A:** Python 3.14 is a pre-release version that can occasionally corrupt cached `.pyc` bytecode. Always run the app with the `-B` flag:
@@ -260,13 +260,13 @@ python -B main.py
 The `-B` flag tells Python not to write or read bytecode cache files, ensuring clean execution.
 
 #### Q: Why is my session token rejected (`Token Verification Failed`)?
-**A:** Qobuz web session tokens are browser-based. If you logged out in your browser or the session expired, refresh [play.qobuz.com](https://play.qobuz.com), copy the new `userAuthToken` from Developer Tools (`localuser`), and save it again in Settings.
+**A:** Q-Buz web session tokens are browser-based. If you logged out in your browser or the session expired, refresh the web player (`play.q-buz.com`), copy the new `userAuthToken` from Developer Tools (`localuser`), and save it again in Settings.
 
 #### Q: Where are lyrics stored?
 **A:** QBZ-RIP automatically queries synchronized lyrics from LRCLIB. A `.lrc` file is saved in the same directory alongside the audio file, and lyrics are also embedded directly into FLAC Vorbis comments (`LYRICS`, `UNSYNCEDLYRICS`) or MP3 ID3 tags (`USLT`).
 
 #### Q: Where is the Digital Booklet PDF saved?
-**A:** If an album includes official digital liner notes / booklets in its Qobuz goodies, the PDF is downloaded automatically and saved as `Digital Booklet.pdf` in the album folder.
+**A:** If an album includes official digital liner notes / booklets in its Q-Buz goodies, the PDF is downloaded automatically and saved as `Digital Booklet.pdf` in the album folder.
 
 ---
 
@@ -280,8 +280,8 @@ qbz-rip/
 └── qbz_rip/
     ├── __init__.py             # Package initialization
     ├── config.py               # Settings manager & candidate App ID store
-    ├── api.py                  # Async Qobuz REST API client & MD5 signer
-    ├── bundle_scraper.py       # Dynamic Qobuz web player bundle scraper
+    ├── api.py                  # Async Q-Buz REST API client & MD5 signer
+    ├── bundle_scraper.py       # Dynamic Q-Buz web player bundle scraper
     ├── downloader.py           # Bit-perfect stream downloader, Range resume & FLAC tagger
     ├── lyrics.py               # LRCLIB synced lyrics fetcher & .lrc generator
     ├── link_resolver.py        # Multi-platform link parser (Spotify/Apple/Tidal/Bandcamp/etc.)
