@@ -75,6 +75,45 @@ def get_qobuz_badge(item):
     else:
         return "LOSSLESS 16-BIT", "#3a506b", "white"
 
+def extract_cover_url(item, album_info=None):
+    """Robustly extracts best available cover art URL across tracks, albums, playlists, and artists."""
+    candidates = []
+
+    # 1. Album info (for tracks)
+    if album_info and isinstance(album_info, dict):
+        candidates.append(album_info.get("image"))
+        candidates.append(album_info.get("cover"))
+
+    # 2. Item itself
+    if isinstance(item, dict):
+        candidates.append(item.get("image"))
+        candidates.append(item.get("cover"))
+        candidates.append(item.get("picture"))
+        candidates.append(item.get("images300"))
+        candidates.append(item.get("images_square"))
+
+    for cand in candidates:
+        if not cand:
+            continue
+        if isinstance(cand, dict):
+            for k in ["small", "thumbnail", "medium", "large", "default"]:
+                val = cand.get(k)
+                if val and isinstance(val, str) and val.startswith("http"):
+                    return val
+        elif isinstance(cand, list) and len(cand) > 0:
+            first = cand[0]
+            if isinstance(first, str) and first.startswith("http"):
+                return first
+            elif isinstance(first, dict):
+                for k in ["small", "thumbnail", "medium", "large"]:
+                    val = first.get(k)
+                    if val and isinstance(val, str) and val.startswith("http"):
+                        return val
+        elif isinstance(cand, str) and cand.startswith("http"):
+            return cand
+
+    return None
+
 class TrackSelectionModal(CTk.CTkToplevel):
     """Interactive Checklist Modal for selecting specific tracks to download from an Album or Playlist."""
 
@@ -329,6 +368,8 @@ class QBZRipUI(CTk.CTk):
         self.pending_downloads = []
         self._image_refs = []
         self._image_cache = {}
+        self._img_semaphore = asyncio.Semaphore(6)
+        self._render_batch_id = 0
         self._search_gen = 0
         self.preview_proc = None
         self.preview_tid = None
@@ -354,6 +395,7 @@ class QBZRipUI(CTk.CTk):
         self.setup_layout()
         self._worker_future = self.run_async(self.download_worker())
         self.check_login_status()
+        self.after(500, self.load_session)
 
     def focus_search(self):
         self.switch_view("search")
@@ -882,26 +924,26 @@ class QBZRipUI(CTk.CTk):
             lbl.pack(pady=40)
             return
 
-        # 4. Progressive Chunked Rendering (60 FPS responsiveness)
-        # Render initial 8 items immediately (<15ms)
-        initial_chunk = min(8, len(filtered))
+        # 4. Progressive Chunked Rendering (Smooth 60 FPS UI)
+        # Render initial 6 items immediately (<10ms)
+        initial_chunk = min(6, len(filtered))
         for i in range(initial_chunk):
-            self._render_result_row(filtered[i])
+            self._render_result_row(filtered[i], current_batch_id)
 
-        # Stream remaining items in background 8-item chunks via after(8)
+        # Stream remaining items in background 5-item chunks spaced with after(22)
         if initial_chunk < len(filtered):
             def render_chunks(start_idx, b_id):
                 if b_id != getattr(self, "_render_batch_id", 0):
                     return
-                end_idx = min(start_idx + 8, len(filtered))
+                end_idx = min(start_idx + 5, len(filtered))
                 for idx in range(start_idx, end_idx):
-                    self._render_result_row(filtered[idx])
+                    self._render_result_row(filtered[idx], b_id)
                 if end_idx < len(filtered):
-                    self.after(8, lambda: render_chunks(end_idx, b_id))
+                    self.after(22, lambda: render_chunks(end_idx, b_id))
                 else:
                     self._append_load_more_btn_if_needed()
 
-            self.after(8, lambda: render_chunks(initial_chunk, current_batch_id))
+            self.after(22, lambda: render_chunks(initial_chunk, current_batch_id))
         else:
             self._append_load_more_btn_if_needed()
 
@@ -921,7 +963,7 @@ class QBZRipUI(CTk.CTk):
             )
             more_btn.pack(expand=True)
 
-    def _render_result_row(self, item):
+    def _render_result_row(self, item, batch_id=None):
         item_cat = item.get("_category")
         if not item_cat:
             if "performer" in item or "album" in item or "duration" in item:
@@ -935,18 +977,18 @@ class QBZRipUI(CTk.CTk):
             else:
                 item_cat = self._current_search_type if self._current_search_type not in ("all", "everything") else "tracks"
 
-        row = CTk.CTkFrame(self.results_scroll, fg_color="transparent", height=92)
-        row.pack(fill="x", pady=4, padx=5)
+        # Modern card frame: eliminates separate divider frames to save RAM and widget overhead
+        row = CTk.CTkFrame(self.results_scroll, fg_color="#141c28", corner_radius=6, height=88)
+        row.pack(fill="x", pady=3, padx=5)
         row.pack_propagate(False)
 
-        # Thumbnail
-        img_lbl = CTk.CTkLabel(row, text="Loading...", width=70, height=70, fg_color="#121822")
-        img_lbl.pack(side="left", padx=(0, 10))
+        # Thumbnail with clean placeholder
+        img_lbl = CTk.CTkLabel(row, text="⏳", width=70, height=70, corner_radius=4, fg_color="#101620")
+        img_lbl.pack(side="left", padx=(8, 10))
 
-        cover_url = None
         badge_text, badge_bg, badge_fg = get_qobuz_badge(item)
-        img_obj = item.get("image") if isinstance(item.get("image"), dict) else {}
 
+        album_info = item.get("album") if isinstance(item.get("album"), dict) else {}
         album_id_for_jump = None
         album_title_for_jump = None
 
@@ -954,7 +996,6 @@ class QBZRipUI(CTk.CTk):
             title = item.get("title", "Unknown Track")
             performer = item.get("performer") if isinstance(item.get("performer"), dict) else {}
             artist = performer.get("name") if isinstance(performer, dict) else "Unknown Artist"
-            album_info = item.get("album") if isinstance(item.get("album"), dict) else {}
             album_title = album_info.get("title", "")
             album_id_for_jump = album_info.get("id")
             album_title_for_jump = album_title
@@ -966,10 +1007,6 @@ class QBZRipUI(CTk.CTk):
             extras = [e for e in [dur_str, year_val] if e]
             extra_suffix = f" • {' • '.join(extras)}" if extras else ""
             display_txt = f"{title}\nBy {artist} — {album_title}{extra_suffix}" if album_title else f"{title}\nBy {artist}{extra_suffix}"
-            item_id = item["id"]
-
-            alb_img = album_info.get("image") if isinstance(album_info.get("image"), dict) else {}
-            cover_url = alb_img.get("small") or alb_img.get("thumbnail") or img_obj.get("small")
 
         elif item_cat == "albums":
             title = item.get("title", "Unknown Album")
@@ -979,8 +1016,6 @@ class QBZRipUI(CTk.CTk):
             year_val = str(item.get("released_at") or item.get("release_date_original") or "")[:4]
             extra_year = f" • {year_val}" if year_val else ""
             display_txt = f"Album: {title}\nBy {artist} • {tracks_count} Tracks{extra_year}"
-            item_id = item["id"]
-            cover_url = img_obj.get("small") or img_obj.get("thumbnail")
 
         elif item_cat == "playlists":
             title = item.get("title", "Unknown Playlist")
@@ -989,29 +1024,26 @@ class QBZRipUI(CTk.CTk):
             owner_name = owner_info.get("name", "")
             owner_str = f" • By {owner_name}" if owner_name else ""
             display_txt = f"Playlist: {title}\nTracks: {tracks_count}{owner_str}"
-            item_id = item["id"]
-            cover_url = img_obj.get("small") or img_obj.get("thumbnail")
 
         elif item_cat == "artists":
-            name = item.get("name", "Unknown Artist")
+            title = item.get("name", "Unknown Artist")
             albums_cnt = item.get("albums_count")
             alb_str = f" • {albums_cnt} Albums" if albums_cnt else ""
-            display_txt = f"Artist: {name}{alb_str}"
-            item_id = item["id"]
-            cover_url = img_obj.get("small") or img_obj.get("thumbnail")
+            display_txt = f"Artist: {title}{alb_str}"
         else:
             title = item.get("title", "Item")
             display_txt = title
-            item_id = item.get("id")
 
+        # Robust cover art extraction across all categories
+        cover_url = extract_cover_url(item, album_info if item_cat == "tracks" else None)
         if cover_url:
-            self.run_async(self.load_image(cover_url, img_lbl))
+            self.run_async(self.load_image(cover_url, img_lbl, batch_id))
         else:
-            img_lbl.configure(text="No Image")
+            img_lbl.configure(text="🎵", text_color=COLOR_TEXT_MUTED)
 
         # Action Buttons Box on Right
         btn_box = CTk.CTkFrame(row, fg_color="transparent")
-        btn_box.pack(side="right", padx=(5, 10), pady=18)
+        btn_box.pack(side="right", padx=(5, 12), pady=16)
 
         if item_cat == "albums":
             dl_btn = CTk.CTkButton(
@@ -1092,10 +1124,10 @@ class QBZRipUI(CTk.CTk):
 
         # Text and Badges in Middle
         text_frame = CTk.CTkFrame(row, fg_color="transparent")
-        text_frame.pack(side="left", fill="both", expand=True)
+        text_frame.pack(side="left", fill="both", expand=True, pady=6)
 
         info_lbl = CTk.CTkLabel(text_frame, text=display_txt, font=CTk.CTkFont(size=12), anchor="w", justify="left")
-        info_lbl.pack(anchor="w", pady=(5, 4))
+        info_lbl.pack(anchor="w", pady=(0, 2))
 
         badges_box = CTk.CTkFrame(text_frame, fg_color="transparent")
         badges_box.pack(anchor="w")
@@ -1126,9 +1158,6 @@ class QBZRipUI(CTk.CTk):
             height=20
         )
         badge.pack(side="left")
-
-        divider = CTk.CTkFrame(self.results_scroll, fg_color="#222d3d", height=1)
-        divider.pack(fill="x", padx=5)
 
     def trigger_album_view(self, album_id, album_title=""):
         self.search_entry.delete(0, "end")
@@ -1325,56 +1354,104 @@ class QBZRipUI(CTk.CTk):
 
         self.run_async(play())
 
-    async def load_image(self, url, label):
-        """Loads and caches thumbnail images with memory-optimized downsampling."""
+    async def load_image(self, url, label, batch_id=None):
+        """Loads and caches thumbnail images with memory-optimized downsampling and browser headers."""
         if not url:
+            self.after(0, lambda: self._fallback_img(label))
             return
+
+        if batch_id is not None and batch_id != getattr(self, "_render_batch_id", 0):
+            return
+
+        # Upgrading http to https prevents unnecessary 301/302 redirects
+        if url.startswith("http://"):
+            url = "https://" + url[7:]
 
         # Check existing cached image
         if url in self._image_cache:
             img = self._image_cache[url]
-            self.after(0, lambda: self._safe_set_img(label, img))
+            self.after(0, lambda: self._safe_set_img(label, img, batch_id))
             return
 
-        try:
-            # Check if label is still valid before firing network request
+        # Semaphore prevents network saturation and event loop queue choking
+        semaphore = getattr(self, "_img_semaphore", None)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(6)
+            self._img_semaphore = semaphore
+
+        async with semaphore:
+            if batch_id is not None and batch_id != getattr(self, "_render_batch_id", 0):
+                return
+
             if not label or not label.winfo_exists():
                 return
 
-            session = await self.api.get_session()
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status == 200:
-                    if not label or not label.winfo_exists():
-                        return
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "Referer": "https://play.qobuz.com/",
+            }
 
-                    data = await resp.read()
-                    if not data or len(data) > 10 * 1024 * 1024:
-                        return
+            try:
+                session = await self.api.get_session()
+                # Disable SSL verification for static CDN assets to handle unbundled Windows root certs
+                timeout = aiohttp.ClientTimeout(total=5, sock_connect=3)
+                async with session.get(url, headers=headers, ssl=False, timeout=timeout) as resp:
+                    if resp.status == 200:
+                        if batch_id is not None and batch_id != getattr(self, "_render_batch_id", 0):
+                            return
+                        if not label or not label.winfo_exists():
+                            return
 
-                    # Downsample in worker thread to keep UI thread 100% free of image processing
-                    def process_image(raw_bytes):
-                        raw_img = Image.open(io.BytesIO(raw_bytes))
-                        if raw_img.mode not in ("RGB", "RGBA"):
-                            raw_img = raw_img.convert("RGB")
-                        # Downsample to crisp 140x140 Retina thumbnail (78KB vs 36MB uncompressed)
-                        resample = getattr(Image, "Resampling", Image).LANCZOS
-                        raw_img.thumbnail((140, 140), resample)
-                        return CTk.CTkImage(light_image=raw_img, dark_image=raw_img, size=(70, 70))
+                        data = await resp.read()
+                        if not data or len(data) > 10 * 1024 * 1024:
+                            self.after(0, lambda: self._fallback_img(label))
+                            return
 
-                    ctk_img = await asyncio.to_thread(process_image, data)
+                        def process_image(raw_bytes):
+                            raw_img = Image.open(io.BytesIO(raw_bytes))
+                            if raw_img.mode not in ("RGB", "RGBA"):
+                                raw_img = raw_img.convert("RGB")
+                            # Bilinear downsampling is 5x faster than Lanczos, saves substantial CPU
+                            resample = getattr(Image, "Resampling", Image).BILINEAR
+                            raw_img.thumbnail((140, 140), resample)
+                            return raw_img
 
-                    # LRU eviction: keep cache size capped at 120 items
-                    if len(self._image_cache) >= 120:
-                        for _ in range(25):
-                            self._image_cache.pop(next(iter(self._image_cache)), None)
+                        pil_img = await asyncio.to_thread(process_image, data)
 
-                    self._image_cache[url] = ctk_img
-                    self.after(0, lambda: self._safe_set_img(label, ctk_img))
+                        if batch_id is not None and batch_id != getattr(self, "_render_batch_id", 0):
+                            return
+
+                        def apply_img(p_img=pil_img, u=url, b_id=batch_id):
+                            if b_id is not None and b_id != getattr(self, "_render_batch_id", 0):
+                                return
+                            if not label.winfo_exists():
+                                return
+                            ctk_img = CTk.CTkImage(light_image=p_img, dark_image=p_img, size=(70, 70))
+                            # Keep cache size capped at 150 items
+                            if len(self._image_cache) >= 150:
+                                for _ in range(30):
+                                    self._image_cache.pop(next(iter(self._image_cache)), None)
+                            self._image_cache[u] = ctk_img
+                            label.configure(image=ctk_img, text="")
+
+                        self.after(0, apply_img)
+                    else:
+                        self.after(0, lambda: self._fallback_img(label))
+            except Exception:
+                self.after(0, lambda: self._fallback_img(label))
+
+    def _fallback_img(self, label):
+        try:
+            if label and label.winfo_exists() and label.cget("text") in ("Loading...", "⏳"):
+                label.configure(text="🎵", text_color=COLOR_TEXT_MUTED)
         except Exception:
             pass
 
-    def _safe_set_img(self, label, ctk_img):
+    def _safe_set_img(self, label, ctk_img, batch_id=None):
         try:
+            if batch_id is not None and batch_id != getattr(self, "_render_batch_id", 0):
+                return
             if label.winfo_exists():
                 label.configure(image=ctk_img, text="")
         except Exception:
@@ -1424,6 +1501,9 @@ class QBZRipUI(CTk.CTk):
         cancel_btn = CTk.CTkButton(header, text="Cancel All", width=80, fg_color="#f44336", hover_color="#d32f2f", text_color="white", command=self.cancel_all_downloads)
         cancel_btn.pack(side="right", padx=4)
 
+        retry_all_btn = CTk.CTkButton(header, text="🔁 Retry Failed", width=100, fg_color=COLOR_FRAME_BG, hover_color="#2b374a", text_color="white", command=self.retry_all_failed_downloads)
+        retry_all_btn.pack(side="right", padx=4)
+
         batch_q_btn = CTk.CTkButton(header, text="📋 Batch Import", width=110, fg_color=COLOR_FRAME_BG, hover_color="#2b374a", text_color="white", command=self.open_batch_import_modal)
         batch_q_btn.pack(side="right", padx=4)
 
@@ -1435,6 +1515,17 @@ class QBZRipUI(CTk.CTk):
 
         self.queue_scroll = CTk.CTkScrollableFrame(self.queue_view, fg_color=COLOR_FRAME_BG)
         self.queue_scroll.grid(row=1, column=0, sticky="nsew")
+
+    def retry_all_failed_downloads(self):
+        retried = 0
+        for tid, item in list(self.queue_items.items()):
+            if item.get("status") in ["failed", "cancelled"]:
+                retry_fn = item.get("retry_func")
+                if retry_fn:
+                    retry_fn()
+                    retried += 1
+        if retried > 0:
+            self.update_queue_summary()
 
     def toggle_pause(self):
         if self.downloader.is_paused:
@@ -1456,6 +1547,8 @@ class QBZRipUI(CTk.CTk):
                     def sc(i=item):
                         if i["status_lbl"].winfo_exists():
                             i["status_lbl"].configure(text="Cancelled", text_color="#f44336")
+                        if "retry_btn" in i and i["retry_btn"].winfo_exists():
+                            i["retry_btn"].pack(side="left", padx=2)
                     self.after(0, sc)
             self.update_queue_summary()
             self.after(1500, lambda: setattr(self.downloader, "is_cancelled", False))
@@ -1481,8 +1574,15 @@ class QBZRipUI(CTk.CTk):
             return
         completed = sum(1 for i in self.queue_items.values() if i["status"] == "completed")
         failed = sum(1 for i in self.queue_items.values() if i["status"] == "failed")
+        cancelled = sum(1 for i in self.queue_items.values() if i["status"] == "cancelled")
         pending = sum(1 for i in self.queue_items.values() if i["status"] in ["queued", "downloading"])
-        self.queue_summary_lbl.configure(text=f"Total: {total} | Completed: {completed} | Failed: {failed} | Pending: {pending}")
+        status_parts = [f"Total: {total}", f"Completed: {completed}"]
+        if failed > 0:
+            status_parts.append(f"Failed: {failed}")
+        if cancelled > 0:
+            status_parts.append(f"Cancelled: {cancelled}")
+        status_parts.append(f"Pending: {pending}")
+        self.queue_summary_lbl.configure(text=" | ".join(status_parts))
 
         # Completion Chime
         if getattr(self, "_queue_active", False) and pending == 0 and completed > 0:
@@ -1493,7 +1593,12 @@ class QBZRipUI(CTk.CTk):
             self._queue_active = True
 
     def queue_track_download(self, track_id, title, parent_folder=None, btn=None):
-        if track_id in self.queue_items:
+        is_already = (
+            track_id in self.queue_items
+            or (isinstance(track_id, int) and str(track_id) in self.queue_items)
+            or (isinstance(track_id, str) and track_id.isdigit() and int(track_id) in self.queue_items)
+        )
+        if is_already:
             messagebox.showinfo("Already in Queue", f"'{title}' is already queued.")
             return
 
@@ -1530,6 +1635,8 @@ class QBZRipUI(CTk.CTk):
         top_btn = CTk.CTkButton(ctrl_frame, text="⬆", width=25, height=20, fg_color="#4caf50", hover_color="#388e3c", text_color="white")
         top_btn.pack(side="left", padx=2)
 
+        retry_btn = CTk.CTkButton(ctrl_frame, text="🔁", width=25, height=20, fg_color="#2196f3", hover_color="#1976d2", text_color="white")
+
         # Progress bar packed with expand=True
         prog_bar = CTk.CTkProgressBar(prog_frame, fg_color="#2b374a", progress_color=COLOR_ACCENT)
         prog_bar.pack(side="left", fill="x", expand=True, padx=(0, 15))
@@ -1549,9 +1656,12 @@ class QBZRipUI(CTk.CTk):
 
         def cancel_item():
             task_state["is_cancelled"] = True
-            if self.queue_items[track_id]["status"] == "queued":
+            if self.queue_items.get(track_id, {}).get("status") == "queued":
                 self.queue_items[track_id]["status"] = "cancelled"
                 status_lbl.configure(text="Cancelled", text_color="#f44336")
+                if retry_btn.winfo_exists():
+                    retry_btn.pack(side="left", padx=2)
+                self.update_queue_summary()
 
         def move_top():
             if track_id in self.pending_downloads:
@@ -1565,9 +1675,28 @@ class QBZRipUI(CTk.CTk):
                     row.pack(fill="x", pady=4, padx=5)
                 status_lbl.configure(text="Moved to Top Priority")
 
+        def retry_item():
+            if self.queue_items.get(track_id, {}).get("status") in ["failed", "cancelled"]:
+                self.queue_items[track_id]["status"] = "queued"
+                status_lbl.configure(text="Queued", text_color=COLOR_TEXT_MUTED)
+                prog_bar.set(0.0)
+                prog_bar.configure(progress_color=COLOR_ACCENT)
+                task_state["is_paused"] = False
+                task_state["is_cancelled"] = False
+                if pause_btn.winfo_exists():
+                    pause_btn.configure(text="⏸", state="normal")
+                if cancel_btn.winfo_exists():
+                    cancel_btn.configure(state="normal")
+                if retry_btn.winfo_exists():
+                    retry_btn.pack_forget()
+                if track_id not in self.pending_downloads:
+                    self.pending_downloads.append(track_id)
+                self.update_queue_summary()
+
         pause_btn.configure(command=toggle_item)
         cancel_btn.configure(command=cancel_item)
         top_btn.configure(command=move_top)
+        retry_btn.configure(command=retry_item)
 
         self.queue_items[track_id] = {
             "title": title,
@@ -1580,7 +1709,9 @@ class QBZRipUI(CTk.CTk):
             "ctrl_frame": ctrl_frame,
             "pause_btn": pause_btn,
             "cancel_btn": cancel_btn,
-            "top_btn": top_btn
+            "top_btn": top_btn,
+            "retry_btn": retry_btn,
+            "retry_func": retry_item
         }
         self.queue_order.append(track_id)
         self.pending_downloads.append(track_id)
@@ -1789,7 +1920,8 @@ class QBZRipUI(CTk.CTk):
                     folder_name = folder_name[:100].rstrip(". ")
                 parent_dir = os.path.join(self.config.download_directory, folder_name)
                 for t in tracks:
-                    self.after(0, lambda tid=t["id"], tt=f"{album_title} - {t.get('title')}", pd=parent_dir: self.queue_track_download(tid, tt, parent_folder=pd))
+                    if isinstance(t, dict) and t.get("id"):
+                        self.after(0, lambda tid=t["id"], tt=f"{album_title} - {t.get('title', 'Track')}", pd=parent_dir: self.queue_track_download(tid, tt, parent_folder=pd))
             except Exception as e:
                 print(f"Failed to queue entire album: {e}")
         self.run_async(f())
@@ -1813,6 +1945,8 @@ class QBZRipUI(CTk.CTk):
                     safe_pl = safe_pl[:100].rstrip(". ")
                 parent_dir = os.path.join(self.config.download_directory, safe_pl)
                 for t in tracks:
+                    if not isinstance(t, dict) or not t.get("id"):
+                        continue
                     t_title = t.get('title', 'Track')
                     t_perf = t.get('performer') if isinstance(t.get('performer'), dict) else {}
                     t_art = t_perf.get('name', '')
@@ -1886,7 +2020,7 @@ class QBZRipUI(CTk.CTk):
                     try:
                         if item["status_lbl"].winfo_exists():
                             item["status_lbl"].configure(text=msg, text_color="#4caf50")
-                        for btn_k in ["pause_btn", "cancel_btn", "top_btn"]:
+                        for btn_k in ["pause_btn", "cancel_btn", "top_btn", "retry_btn"]:
                             if btn_k in item and item[btn_k].winfo_exists():
                                 item[btn_k].destroy()
                         if item["ctrl_frame"].winfo_exists():
@@ -1909,6 +2043,8 @@ class QBZRipUI(CTk.CTk):
                     try:
                         if item["status_lbl"].winfo_exists():
                             item["status_lbl"].configure(text=msg, text_color="#f44336")
+                        if item.get("status") in ["failed", "cancelled"] and "retry_btn" in item and item["retry_btn"].winfo_exists():
+                            item["retry_btn"].pack(side="left", padx=2)
                     except Exception:
                         pass
                 self.after(0, on_fail)
@@ -1916,12 +2052,20 @@ class QBZRipUI(CTk.CTk):
             item["status"] = "failed"
             err_text = str(e)
             print(f"[Download Error] Track {track_id} failed: {err_text}")
-            import traceback
-            traceback.print_exc()
+            if "Qobuz API error" not in err_text and "404" not in err_text:
+                import traceback
+                traceback.print_exc()
             def on_err():
                 try:
                     if item["status_lbl"].winfo_exists():
-                        item["status_lbl"].configure(text=f"Failed: {err_text[:35]}", text_color="#f44336")
+                        disp_err = err_text
+                        if "404" in err_text or "No result matching" in err_text:
+                            disp_err = "Delisted / Unavailable (404)"
+                        elif "401" in err_text or "403" in err_text:
+                            disp_err = "Auth / Geo-restricted (403)"
+                        item["status_lbl"].configure(text=f"Failed: {disp_err[:35]}", text_color="#f44336")
+                    if "retry_btn" in item and item["retry_btn"].winfo_exists():
+                        item["retry_btn"].pack(side="left", padx=2)
                 except Exception:
                     pass
             self.after(0, on_err)
@@ -2289,7 +2433,92 @@ class QBZRipUI(CTk.CTk):
             self.user_name_lbl.configure(text="Not Logged In", text_color="white")
             self.user_sub_lbl.configure(text="Hi-Res Studio Master", text_color=COLOR_TEXT_MUTED)
 
+    def on_closing_save_session(self):
+        """Saves unfinished download tasks (queued and downloading) to session.json so they can be resumed later."""
+        try:
+            session_data = []
+            seen_tids = set()
+            candidate_tids = list(self.queue_order) + [tid for tid in self.queue_items.keys() if tid not in self.queue_order]
+            for tid in candidate_tids:
+                if tid in seen_tids:
+                    continue
+                seen_tids.add(tid)
+                item = self.queue_items.get(tid)
+                if item and item.get("status") in ["queued", "downloading"]:
+                    session_data.append({
+                        "track_id": tid,
+                        "title": item.get("title", f"Track {tid}"),
+                        "parent_folder": item.get("parent_folder")
+                    })
+
+            session_file = os.path.join(self.config.config_dir, "session.json")
+            if session_data:
+                os.makedirs(self.config.config_dir, exist_ok=True)
+                with open(session_file, "w", encoding="utf-8") as f:
+                    json.dump(session_data, f, ensure_ascii=False, indent=2)
+            elif os.path.exists(session_file):
+                try:
+                    os.remove(session_file)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[Session Preservation] Failed to save session: {e}")
+
+        # Cleanup preview temporary audio files
+        try:
+            import glob
+            for target_dir in [self.config.config_dir, self.config.download_directory]:
+                if target_dir and os.path.exists(target_dir):
+                    for pat in ["preview_*.wav", "preview_*.mp3", "preview_*.tmp"]:
+                        for fpath in glob.glob(os.path.join(target_dir, pat)):
+                            try:
+                                os.remove(fpath)
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+
+    def load_session(self):
+        """Restores pending downloads from previous session if session.json exists."""
+        try:
+            session_file = os.path.join(self.config.config_dir, "session.json")
+            if os.path.exists(session_file):
+                with open(session_file, "r", encoding="utf-8") as f:
+                    session_data = json.load(f)
+
+                if session_data and isinstance(session_data, list):
+                    restored_count = 0
+                    for data in session_data:
+                        tid = data.get("track_id")
+                        title = data.get("title")
+                        parent_folder = data.get("parent_folder")
+                        is_already_queued = (
+                            tid in self.queue_items
+                            or (isinstance(tid, int) and str(tid) in self.queue_items)
+                            or (isinstance(tid, str) and str(tid).isdigit() and int(tid) in self.queue_items)
+                        )
+                        if tid and not is_already_queued:
+                            self.queue_track_download(tid, title, parent_folder=parent_folder)
+                            restored_count += 1
+
+                    if restored_count > 0:
+                        messagebox.showinfo(
+                            "Session Restored",
+                            f"Restored {restored_count} pending downloads from your previous session."
+                        )
+
+                try:
+                    os.remove(session_file)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[Session Preservation] Failed to restore session: {e}")
+
     def on_closing(self):
+        try:
+            self.on_closing_save_session()
+        except Exception as e:
+            print(f"Error during on_closing_save_session: {e}")
         self.stop_preview()
         self._worker_running = False
         if hasattr(self, "_worker_future") and self._worker_future:

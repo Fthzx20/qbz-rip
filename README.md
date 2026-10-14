@@ -44,6 +44,12 @@ Designed for audiophiles who demand true, uncompressed **24-bit / 192kHz Studio 
 * ☑️ **Interactive Track Selection Checklist**: When downloading Albums or Playlists, an interactive checklist modal lets you choose specific tracks with **Select All**, **Deselect All**, **Invert Selection**, and clickable track rows.
 * 📁 **Windows Explorer Integration**: One-click "Open Folder" button in Queue header plus individual folder reveal buttons (`📁`) that highlight the exact downloaded audio file in Windows Explorer.
 * 🔔 **Queue Completion Chime**: Gentle notification chime when batch downloads finish.
+* 🚀 **1-Click Windows Automation (`install.bat` & `run.bat`)**: Out-of-the-box Windows batch scripts that auto-detect Python, upgrade pip, install dependencies, and launch the application seamlessly.
+* ⚡ **Fluid 60 FPS Chunked UI Rendering**: High-performance UI engine featuring chunked progressive rendering that keeps the window butter-smooth and responsive even with hundreds of search results.
+* 🖼️ **Resilient Cover Thumbnail Engine**: High-speed async artwork loader with browser spoofing headers, SSL fallback, and clean placeholder fallbacks (`🎵`) preventing network hang-ups.
+* 🧠 **Session Preservation & Auto-Restore**: Never lose your queue! Both pending and actively downloading tracks are automatically saved on exit (`session.json`) and seamlessly restored on the next launch.
+* 🔁 **One-Click Failed & Cancelled Download Retry**: Instant `🔁` retry button on individual items plus a header `🔁 Retry Failed` button to revive failed or cancelled tracks without re-searching.
+* 🛡️ **Graceful Delisted & Geo-Block Protection**: Gracefully detects 404 delisted or region-locked tracks on Q-Buz and flags them cleanly without crashing or interrupting other downloads.
 * ⏭️ **Smart Sync Skip**: Automatically checks if a track was already downloaded and skips redundant network traffic.
 
 ---
@@ -113,7 +119,14 @@ If the audio stream is 100% bit-perfect from Q-Buz, why does Spek show high freq
 * **Python 3.8 or higher** (Python 3.10–3.13 recommended; fully compatible with Python 3.14).
 * Windows 10/11, macOS, or Linux.
 
-### 2. Setup
+### ⚡ 1-Click Quick Start (Windows — Recommended)
+If you are on Windows, no manual command-line typing is needed:
+1. Double-click **`install.bat`** — Automatically detects your Python installation (`py` or `python`), upgrades pip, and installs all required dependencies.
+2. Double-click **`run.bat`** — Launches QBZ-RIP with optimal settings (`-B` flag to bypass bytecode cache errors).
+
+---
+
+### 💻 Manual Setup (Cross-Platform / CLI)
 ```bash
 # 1. Navigate to the project directory
 cd "d:/Desktop/Documents/Code Things/qbz-rip"
@@ -128,6 +141,7 @@ source venv/bin/activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
+# (Tip for Windows: If 'pip' is not recognized, run: py -m pip install -r requirements.txt)
 ```
 
 ### 3. Dependencies
@@ -207,6 +221,7 @@ python -B main.py
   - ⏸ **Pause / Resume**: Temporarily pause or resume a specific download.
   - ✖ **Cancel**: Stop and remove an item from the queue.
   - ⬆ **Move to Top**: Bump a track to the front of the queue.
+  - 🔁 **Retry**: Instantly re-queue a failed download with a single click.
   - 📁 **Reveal**: Open and select the downloaded file in Windows Explorer.
 
 ---
@@ -232,7 +247,10 @@ Application settings can be managed via the GUI or edited in `~/.qbz_rip/config.
 * `{album}`: Album title
 * `{title}`: Track title
 * `{track_num}`: Zero-padded track number (`01`, `02`)
+* `{total_tracks}`: Zero-padded total tracks in album (`12`)
 * `{disc_num}`: Zero-padded disc number (`01`, `02`)
+* `{total_discs}`: Zero-padded total discs in album (`01`)
+* `{genre}`: Music genre name (`Jazz`, `Rock`, `Classical`)
 * `{year}`: 4-digit release year (`2024`)
 * `{bit_depth}`: Formatted bit depth (`24bit` or `16bit`)
 * `{sample_rate}`: Formatted sampling rate (`192kHz`, `96kHz`, `44.1kHz`)
@@ -246,6 +264,18 @@ Application settings can be managed via the GUI or edited in `~/.qbz_rip/config.
 
 ## 🛠️ Troubleshooting & FAQ
 
+#### Q: Why do I get `'pip' is not recognized as an internal or external command` on Windows?
+**A:** This occurs when Python's `Scripts` directory has not been added to your Windows system `PATH` variable. You have 3 easy ways to fix it:
+1. **Method 1 (Easiest — 1-Click):** Simply double-click **`install.bat`** in the project folder. It uses the Windows Python launcher (`py`) to locate Python and install all dependencies automatically.
+2. **Method 2 (CLI):** Run the command using the Python launcher directly:
+   ```bash
+   py -m pip install -r requirements.txt
+   ```
+3. **Method 3 (Fix PATH permanently):** Re-run the official installer from [python.org](https://www.python.org/), click **Modify**, and check the box **"Add python.exe to PATH"**.
+
+#### Q: Why do I get `Q-Buz API error (404): No result matching given argument` on certain tracks?
+**A:** A 404 error from the Q-Buz API means the track or release has been **delisted**, removed by the record label, or is **geo-restricted** in your account's registered country/region. QBZ-RIP catches this cleanly, marks the track with a warning, and continues downloading the rest of your queue smoothly without crashing.
+
 #### Q: Why do I get `Q-Buz API error (400): Invalid or missing app_id parameter`?
 **A:** The Q-Buz service requires an active, matching client `app_id`. The application includes automated recovery:
 1. QBZ-RIP automatically scrapes active client App IDs from the official Web Player bundle.
@@ -253,7 +283,7 @@ Application settings can be managed via the GUI or edited in `~/.qbz_rip/config.
 3. Or open the web player (`play.q-buz.com`) -> press F12 -> Network tab (filter: `api.json/0.2`), inspect a request header, copy the **`X-App-Id`** value (9 digits), and paste it into Settings.
 
 #### Q: Why do I see `ValueError: bad marshal data` when running with Python 3.14?
-**A:** Python 3.14 is a pre-release version that can occasionally corrupt cached `.pyc` bytecode. Always run the app with the `-B` flag:
+**A:** Python 3.14 is a pre-release version that can occasionally corrupt cached `.pyc` bytecode. Always run the app with the `-B` flag (or double-click **`run.bat`**):
 ```bash
 python -B main.py
 ```
@@ -274,6 +304,8 @@ The `-B` flag tells Python not to write or read bytecode cache files, ensuring c
 
 ```
 qbz-rip/
+├── install.bat                 # 1-Click Windows automatic dependency installer
+├── run.bat                     # 1-Click Windows launcher (bypasses bytecode cache)
 ├── main.py                     # Application entry point & asyncio event loop
 ├── requirements.txt            # Python dependencies
 ├── README.md                   # Complete documentation & audiophile guide
@@ -285,7 +317,7 @@ qbz-rip/
     ├── downloader.py           # Bit-perfect stream downloader, Range resume & FLAC tagger
     ├── lyrics.py               # LRCLIB synced lyrics fetcher & .lrc generator
     ├── link_resolver.py        # Multi-platform link parser (Spotify/Apple/Tidal/Bandcamp/etc.)
-    └── ui.py                   # CustomTkinter GUI, Batch Importer & parallel queue monitor
+    └── ui.py                   # CustomTkinter GUI, 60 FPS card renderer & parallel queue monitor
 ```
 
 ---

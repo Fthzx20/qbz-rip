@@ -74,7 +74,14 @@ class DownloadManager:
                 return False, "Cancelled", None
 
             # 1. Fetch metadata
-            track_meta = await self.api.get_track(track_id)
+            try:
+                track_meta = await self.api.get_track(track_id)
+            except Exception as e:
+                err_msg = str(e)
+                if "404" in err_msg or "No result matching" in err_msg:
+                    return False, f"Track delisted / unavailable on Qobuz (404)", None
+                return False, f"Metadata lookup failed: {err_msg[:60]}", None
+
             if not track_meta or not isinstance(track_meta, dict):
                 return False, f"Could not retrieve track metadata for ID {track_id}", None
 
@@ -97,8 +104,14 @@ class DownloadManager:
             album_title = album_meta.get("title") or "Unknown Album"
             track_num = track_meta.get("track_number", 1)
             disc_num = track_meta.get("media_number", 1)
+            total_tracks = album_meta.get("tracks_count") or 1
+            total_discs = album_meta.get("media_count") or 1
             isrc = track_meta.get("isrc") or ""
             copyright_str = album_meta.get("copyright") or ""
+
+            # Genre detection
+            genre_obj = album_meta.get("genre") or track_meta.get("genre") or {}
+            genre_name = genre_obj.get("name") if isinstance(genre_obj, dict) else str(genre_obj or "")
 
             # Release Year
             release_date = album_meta.get("release_date_original") or album_meta.get("release_date_download") or ""
@@ -112,13 +125,32 @@ class DownloadManager:
                 disc_num = int(disc_num)
             except (ValueError, TypeError):
                 disc_num = 1
+            try:
+                total_tracks = int(total_tracks)
+            except (ValueError, TypeError):
+                total_tracks = 1
+            try:
+                total_discs = int(total_discs)
+            except (ValueError, TypeError):
+                total_discs = 1
 
             # 2. Get stream URL (prioritizing 24-bit/192kHz Studio Master)
             if progress_callback:
                 progress_callback(0.0, "Requesting Studio Master URL...")
 
-            stream_info = await self.api.get_file_url(track_id, self.config.format_id)
-            stream_url = stream_info["url"]
+            try:
+                stream_info = await self.api.get_file_url(track_id, self.config.format_id)
+                stream_url = stream_info.get("url") if isinstance(stream_info, dict) else None
+                if not stream_url:
+                    return False, "Server returned empty stream URL", None
+            except Exception as e:
+                err_s = str(e)
+                if "404" in err_s:
+                    return False, "Stream not found on server (404 / Geo-restricted)", None
+                elif "401" in err_s or "403" in err_s or "user_auth_token" in err_s.lower():
+                    return False, "Unauthorized stream (Token expired / Login needed)", None
+                return False, f"Stream request failed: {err_s[:50]}", None
+
             fmt_id = stream_info.get("format_id", self.config.format_id)
             ext = "flac" if fmt_id in [27, 7, 6] else "mp3"
             bit_depth = stream_info.get("bit_depth") or track_meta.get("maximum_bit_depth") or track_meta.get("bit_depth") or (24 if fmt_id in [27, 7] else 16)
@@ -145,6 +177,9 @@ class DownloadManager:
                 "title": sanitize_filename(title),
                 "track_num": f"{track_num:02d}",
                 "disc_num": f"{disc_num:02d}",
+                "total_tracks": f"{total_tracks:02d}",
+                "total_discs": f"{total_discs:02d}",
+                "genre": sanitize_filename(genre_name) if genre_name else "Unknown",
                 "year": year or "Unknown",
                 "bit_depth": bd_str,
                 "sample_rate": sr_str,
@@ -381,16 +416,14 @@ class DownloadManager:
 
             # Fetch Synced Lyrics from LRCLIB
             lyrics_info = None
+            lrc_to_save = None
             try:
-                from .lyrics import fetch_lyrics, save_lrc_file
+                from .lyrics import fetch_lyrics
                 lyrics_info = await fetch_lyrics(title, artist, album_title, int(duration_sec or 0))
+                if lyrics_info:
+                    lrc_to_save = lyrics_info.get("synced") or lyrics_info.get("plain")
             except Exception as e:
                 print(f"Lyrics lookup error: {e}")
-
-            if lyrics_info:
-                lrc_text = lyrics_info.get("synced") or lyrics_info.get("plain")
-                if lrc_text:
-                    save_lrc_file(target_path, lrc_text)
 
             # Apply tags with exception isolation
             try:
@@ -465,8 +498,12 @@ class DownloadManager:
                     if alb_art_name:
                         audio.add(TPE2(encoding=3, text=str(alb_art_name)))
                     audio.add(TALB(encoding=3, text=str(album_title)))
-                    audio.add(TRCK(encoding=3, text=str(track_num)))
-                    audio.add(TPOS(encoding=3, text=str(disc_num)))
+                    total_tracks_val = album_meta.get("tracks_count")
+                    trck_str = f"{track_num}/{total_tracks_val}" if total_tracks_val else str(track_num)
+                    audio.add(TRCK(encoding=3, text=trck_str))
+                    total_discs_val = album_meta.get("media_count")
+                    tpos_str = f"{disc_num}/{total_discs_val}" if total_discs_val else str(disc_num)
+                    audio.add(TPOS(encoding=3, text=tpos_str))
                     if year:
                         audio.add(TDRC(encoding=3, text=str(year)))
                     if isrc:
@@ -521,6 +558,14 @@ class DownloadManager:
                         renamed = True
                     except Exception as e:
                         raise e
+
+            # Save companion .lrc file if lyrics were retrieved
+            if os.path.exists(target_path) and lrc_to_save:
+                try:
+                    from .lyrics import save_lrc_file
+                    save_lrc_file(target_path, lrc_to_save)
+                except Exception as e:
+                    print(f"Failed to write .lrc file: {e}")
 
             # 8. Checksum verification & album checksums.md5 generation (A 4) with folder lock
             if parent_folder and os.path.exists(target_path):

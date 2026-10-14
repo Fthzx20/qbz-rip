@@ -16,6 +16,7 @@ dist/
 # User Configuration & Authentication Tokens (Never commit credentials)
 .qbz_rip/
 config.json
+session.json
 *.env
 .env*
 !*.env.example

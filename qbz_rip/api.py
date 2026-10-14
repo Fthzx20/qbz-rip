@@ -636,7 +636,7 @@ class QobuzAPI:
 
     async def get_track(self, track_id):
         """Retrieves metadata for a track."""
-        return await self._api_request("track/get", params={"track_id": track_id})
+        return await self._api_request("track/get", params={"track_id": str(track_id).strip()})
 
     async def get_album(self, album_id):
         """Retrieves metadata and tracklist for an album."""
