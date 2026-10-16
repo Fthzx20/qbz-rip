@@ -50,30 +50,34 @@ def parse_qobuz_url(text):
         return None, None
     t = text.strip()
 
-    # Direct raw ID or UPC barcode (e.g. 12345678, 0060253786968)
+    # Direct raw numeric ID or UPC barcode (e.g. 12345678, 0060253786968)
     if re.fullmatch(r"\d{6,14}", t):
         return "raw_id", t
+
+    # Alphanumeric Album ID (e.g. es45w03nwb5eb - 11 to 14 alphanumeric chars)
+    if re.fullmatch(r"[a-z0-9]{11,14}", t, re.I) and not t.isdigit():
+        return "album", t
 
     # Strip query parameters (?...) and URL fragments (#...)
     clean_t = re.sub(r"[?#].*$", "", t).rstrip("/")
 
     # Track URLs: .../track/.../12345 or .../track/12345
-    m = re.search(r"qobuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?track/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
+    m = re.search(r"q-?obuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?track/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
     if m:
         return "track", m.group(1)
 
     # Album URLs: .../album/.../xxxx or .../album/xxxx
-    m = re.search(r"qobuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?album/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
+    m = re.search(r"q-?obuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?album/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
     if m:
         return "album", m.group(1)
 
     # Playlist URLs: .../playlist/xxxx
-    m = re.search(r"qobuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?playlist/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
+    m = re.search(r"q-?obuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?playlist/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
     if m:
         return "playlist", m.group(1)
 
     # Artist / Interpreter URLs: .../interpreter/xxxx, .../interpret/xxxx, .../artist/xxxx
-    m = re.search(r"qobuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?(?:interpreter|interpret|artist)/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
+    m = re.search(r"q-?obuz\.com/(?:[a-zA-Z]{2}(?:-[a-zA-Z]{2})?/)?(?:interpreter|interpret|artist)/(?:.*/)?([a-zA-Z0-9_\-]+)", clean_t, re.I)
     if m:
         return "artist", m.group(1)
 

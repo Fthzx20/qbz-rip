@@ -18,7 +18,7 @@ def main():
     loop_thread = threading.Thread(target=start_event_loop, args=(loop,), daemon=True)
     loop_thread.start()
 
-    # 2. Initialize Configuration & Qobuz API Client
+    # 2. Initialize Configuration & Q-Buz API Client
     config = Config()
     api = QobuzAPI(config)
 

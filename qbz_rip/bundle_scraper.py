@@ -17,8 +17,13 @@ DEFAULT_BUNDLE_URLS = [
 KNOWN_CANDIDATE_SECRETS = [
     "abb21364945c0583309667d13ca3d93a",  # Web player live secret
     "b27926955a50d249f3e46c76dbb4fc7d",  # Web player public secret
-    "e91240c345167dbdbef56e07a68e98ec",  # Desktop client secret
+    "e28e9f3d71d274a605693111477d4fe2",  # Hardware streamer master secret
+    "29dc1e01d6c8ad9eee63b249bc6412d9",  # Hardware streamer secondary secret
+    "37ff1b4edefab5dfd5a03df9bafcd47d",  # Hardware streamer tertiary secret
+    "4621c1a9386fc713174249a5b9da4e10",  # Hardware streamer quaternary secret
     "a4f3b764b82d029519398f6d2f7881be",  # Android client secret
+    "fa31fc13e7a28e7d70bb61e91aa9e178",  # Desktop Hi-Res secret
+    "e91240c345167dbdbef56e07a68e98ec",  # Desktop client secret
     "2143ea23b98e2133b3ff5f9218227b68",  # Web v8 stream key
     "59a35e40e87247fb4268e64c204c3cf7",  # Web v7 stream key
     "04c7a01662fb1d2003ea169994c65cd4",  # Alternate key
@@ -35,8 +40,8 @@ def get_ssl_context():
 async def validate_stream_signature(session: aiohttp.ClientSession, app_id: str, secret: str) -> bool:
     """
     Sends a test request to track/getFileUrl with track_id=1.
-    If the secret is wrong, Qobuz returns HTTP 400: 'Invalid Request Signature parameter (request_sig)'.
-    If the secret is mathematically correct, Qobuz accepts the signature (returns != 400 or error without 'request_sig').
+    If the secret is wrong, Q-Buz returns HTTP 400: 'Invalid Request Signature parameter (request_sig)'.
+    If the secret is mathematically correct, Q-Buz accepts the signature (returns != 400 or error without 'request_sig').
     """
     ts = str(int(datetime.datetime.now().timestamp()))
     raw_sig = f"trackgetFileUrlformat_id27intentstreamtrack_id1{ts}{secret}"
@@ -60,6 +65,9 @@ async def validate_stream_signature(session: aiohttp.ClientSession, app_id: str,
             resp_text = await resp.text()
             if resp.status != 400:
                 return True
+            # If rejected due to app_id, this client cannot stream
+            if "app_id" in resp_text.lower():
+                return False
             # Even if 400, verify if it's NOT a signature error
             if "request_sig" not in resp_text.lower() and "signature" not in resp_text.lower():
                 return True
@@ -69,7 +77,7 @@ async def validate_stream_signature(session: aiohttp.ClientSession, app_id: str,
 
 async def scrape_qobuz_web_credentials(timeout_sec: int = 25) -> Optional[Dict[str, str]]:
     """
-    Scrapes the live Qobuz web player (play.qobuz.com) to extract the active 9-digit App ID
+    Scrapes the live Q-Buz web player (play.qobuz.com) to extract the active 9-digit App ID
     and validates the stream signing secret from decoded timezone seeds & known keys.
     """
     ssl_ctx = get_ssl_context()
@@ -144,7 +152,7 @@ async def scrape_qobuz_web_credentials(timeout_sec: int = 25) -> Optional[Dict[s
             # 4. Extract Candidate Secrets
             candidate_secrets: List[str] = []
 
-            # A. Reconstruct from Timezone Seeds (Qobuz dynamic signing secret mechanism)
+            # A. Reconstruct from Timezone Seeds (Q-Buz dynamic signing secret mechanism)
             try:
                 seed_tz_regex = re.compile(r'initialSeed\("(?P<seed>[\w=]+)",(?:\w+\.)?utimezone\.(?P<timezone>[a-z]+)\)', re.I)
                 secrets_map: Dict[str, List[str]] = {}
@@ -213,5 +221,5 @@ async def scrape_qobuz_web_credentials(timeout_sec: int = 25) -> Optional[Dict[s
             }
 
     except Exception as e:
-        print(f"[BundleScraper] Error scraping Qobuz credentials: {e}")
+        print(f"[BundleScraper] Error scraping Q-Buz credentials: {e}")
         return None

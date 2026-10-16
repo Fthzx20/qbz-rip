@@ -22,7 +22,7 @@ from .config import FORMAT_LABELS, DEFAULT_APP_ID, DEFAULT_APP_SECRET
 from .downloader import DownloadManager, sanitize_filename
 from .link_resolver import parse_qobuz_url, is_external_music_link, resolve_external_link
 
-# Styling constants - Qobuz Cyan & Navy Studio Palette
+# Styling constants - Q-Buz Cyan & Navy Studio Palette
 COLOR_DARK_BG = "#0f141c"
 COLOR_SIDEBAR_BG = "#151c27"
 COLOR_FRAME_BG = "#1a2332"
@@ -164,6 +164,9 @@ class TrackSelectionModal(CTk.CTkToplevel):
         scroll.pack(fill="both", expand=True, padx=20, pady=(0, 15))
 
         for idx, trk in enumerate(self.track_list):
+            if not isinstance(trk, dict):
+                continue
+
             row = CTk.CTkFrame(scroll, fg_color="transparent", height=40)
             row.pack(fill="x", pady=2, padx=4)
             row.pack_propagate(False)
@@ -174,30 +177,43 @@ class TrackSelectionModal(CTk.CTkToplevel):
             cb = CTk.CTkCheckBox(row, text="", variable=var, width=24, command=self.update_counter)
             cb.pack(side="left", padx=(5, 5))
 
-            trk_num = trk.get("track_number", idx + 1)
-            disc_num = trk.get("media_number", 1)
+            raw_trk = trk.get("track_number")
+            try:
+                trk_num = int(raw_trk) if raw_trk is not None else (idx + 1)
+            except (ValueError, TypeError):
+                trk_num = idx + 1
+
+            raw_disc = trk.get("media_number")
+            try:
+                disc_num = int(raw_disc) if raw_disc is not None else 1
+            except (ValueError, TypeError):
+                disc_num = 1
+
             num_str = f"{disc_num}-{trk_num:02d}" if disc_num > 1 else f"{trk_num:02d}"
 
             num_lbl = CTk.CTkLabel(row, text=num_str, font=CTk.CTkFont(family="Consolas", size=11), text_color=COLOR_TEXT_MUTED, width=40, anchor="w")
             num_lbl.pack(side="left", padx=(0, 6))
 
             # Duration packed to right first
-            dur_sec = trk.get("duration", 0)
-            if dur_sec:
-                mins, secs = divmod(int(dur_sec), 60)
-                dur_lbl = CTk.CTkLabel(row, text=f"{mins}:{secs:02d}", font=CTk.CTkFont(family="Consolas", size=11), text_color=COLOR_TEXT_MUTED, width=45, anchor="e")
-                dur_lbl.pack(side="right", padx=(5, 10))
+            dur_sec = trk.get("duration")
+            if dur_sec is not None:
+                try:
+                    mins, secs = divmod(int(dur_sec), 60)
+                    dur_lbl = CTk.CTkLabel(row, text=f"{mins}:{secs:02d}", font=CTk.CTkFont(family="Consolas", size=11), text_color=COLOR_TEXT_MUTED, width=45, anchor="e")
+                    dur_lbl.pack(side="right", padx=(5, 10))
+                except (ValueError, TypeError):
+                    pass
 
             # Title & artist
-            t_title = trk.get("title", "Unknown Track")
-            performer = trk.get("performer", {})
+            t_title = trk.get("title") or f"Track {trk.get('id', idx + 1)}"
+            performer = trk.get("performer") or {}
             t_artist = performer.get("name") if isinstance(performer, dict) else ""
             if not t_artist and isinstance(trk.get("artist"), dict):
-                t_artist = trk.get("artist", {}).get("name", "")
+                t_artist = trk.get("artist", {}).get("name") or ""
             if not t_artist and isinstance(trk.get("album"), dict):
-                alb_art = trk.get("album", {}).get("artist", {})
+                alb_art = trk.get("album", {}).get("artist") or {}
                 if isinstance(alb_art, dict):
-                    t_artist = alb_art.get("name", "")
+                    t_artist = alb_art.get("name") or ""
             
             info_frame = CTk.CTkFrame(row, fg_color="transparent")
             info_frame.pack(side="left", fill="both", expand=True)
@@ -282,7 +298,7 @@ class BatchImportModal(CTk.CTkToplevel):
             text_color=COLOR_ACCENT
         ).pack(anchor="w")
 
-        guide_txt = "Paste multiple links or IDs below (one per line).\nSupports Qobuz, Spotify, Apple Music, Tidal, Deezer, YouTube, SoundCloud, Bandcamp, and Amazon Music."
+        guide_txt = "Paste multiple links or IDs below (one per line).\nSupports Q-Buz, Spotify, Apple Music, Tidal, Deezer, YouTube, SoundCloud, Bandcamp, and Amazon Music."
         CTk.CTkLabel(header, text=guide_txt, font=CTk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED, justify="left").pack(anchor="w", pady=(4, 0))
 
         # Text Area
@@ -711,23 +727,23 @@ class QBZRipUI(CTk.CTk):
                 target_type = resolved_type or ("tracks" if search_type in ("all", "everything") else search_type)
                 self.after(0, lambda t=target_type.capitalize(): self.search_type_menu.set(t))
                 svc_title = service_name or "Service"
-                self.after(0, lambda info=display_info, svc=svc_title: self.show_search_status(f"Found on {svc}: {info}\nSearching Qobuz catalog..."))
+                self.after(0, lambda info=display_info, svc=svc_title: self.show_search_status(f"Found on {svc}: {info}\nSearching Q-Buz catalog..."))
                 try:
                     res = await self.api.smart_search(resolved_query, search_type=target_type, limit=50)
                     self.after(0, self.finish_search, res, target_type, None, gen)
                 except Exception as e:
-                    self.after(0, self.finish_search, None, target_type, f"Qobuz catalog search error: {e}", gen)
+                    self.after(0, self.finish_search, None, target_type, f"Q-Buz catalog search error: {e}", gen)
                 return
             else:
                 self.after(0, self.finish_search, None, search_type, "Could not extract metadata from this link. Please try searching by song title or artist directly.", gen)
                 return
 
-        # 2. Direct Qobuz URLs or Raw IDs
+        # 2. Direct Q-Buz URLs or Raw IDs
         q_type, q_id = parse_qobuz_url(query)
         if q_type:
             try:
                 if q_type == "raw_id":
-                    self.after(0, lambda: self.show_search_status(f"Fetching Qobuz release (ID: {q_id})..."))
+                    self.after(0, lambda: self.show_search_status(f"Fetching Q-Buz release (ID: {q_id})..."))
                     if search_type == "albums" or len(q_id) >= 12:
                         try:
                             album = await self.api.get_album(q_id)
@@ -756,38 +772,38 @@ class QBZRipUI(CTk.CTk):
                             self.after(0, lambda: self.search_type_menu.set("Albums"))
                             self.after(0, self.finish_search, {"albums": {"items": [album], "total": 1}}, "albums", None, gen)
                             return
-                    self.after(0, self.finish_search, None, search_type, f"No Qobuz track or album found matching ID {q_id}.", gen)
+                    self.after(0, self.finish_search, None, search_type, f"No Q-Buz track or album found matching ID {q_id}.", gen)
                     return
 
                 elif q_type == "track":
                     self.after(0, lambda: self.search_type_menu.set("Tracks"))
-                    self.after(0, lambda: self.show_search_status(f"Fetching Qobuz track (ID: {q_id})..."))
+                    self.after(0, lambda: self.show_search_status(f"Fetching Q-Buz track (ID: {q_id})..."))
                     track = await self.api.get_track(q_id)
                     if track and isinstance(track, dict) and track.get("id"):
                         res = {"tracks": {"items": [track], "total": 1}}
                         self.after(0, self.finish_search, res, "tracks", None, gen)
                     else:
-                        self.after(0, self.finish_search, None, "tracks", f"Qobuz track not found or geo-restricted (ID: {q_id}).", gen)
+                        self.after(0, self.finish_search, None, "tracks", f"Q-Buz track not found or geo-restricted (ID: {q_id}).", gen)
 
                 elif q_type == "album":
                     self.after(0, lambda: self.search_type_menu.set("Albums"))
-                    self.after(0, lambda: self.show_search_status(f"Fetching Qobuz album (ID: {q_id})..."))
+                    self.after(0, lambda: self.show_search_status(f"Fetching Q-Buz album (ID: {q_id})..."))
                     album = await self.api.get_album(q_id)
                     if album and isinstance(album, dict) and album.get("id"):
                         res = {"albums": {"items": [album], "total": 1}}
                         self.after(0, self.finish_search, res, "albums", None, gen)
                     else:
-                        self.after(0, self.finish_search, None, "albums", f"Qobuz album not found or geo-restricted (ID: {q_id}).", gen)
+                        self.after(0, self.finish_search, None, "albums", f"Q-Buz album not found or geo-restricted (ID: {q_id}).", gen)
 
                 elif q_type == "playlist":
                     self.after(0, lambda: self.search_type_menu.set("Playlists"))
-                    self.after(0, lambda: self.show_search_status(f"Fetching Qobuz playlist (ID: {q_id})..."))
+                    self.after(0, lambda: self.show_search_status(f"Fetching Q-Buz playlist (ID: {q_id})..."))
                     pl = await self.api.get_playlist(q_id)
                     if pl and isinstance(pl, dict) and pl.get("id"):
                         res = {"playlists": {"items": [pl], "total": 1}}
                         self.after(0, self.finish_search, res, "playlists", None, gen)
                     else:
-                        self.after(0, self.finish_search, None, "playlists", f"Qobuz playlist not found (ID: {q_id}).", gen)
+                        self.after(0, self.finish_search, None, "playlists", f"Q-Buz playlist not found (ID: {q_id}).", gen)
 
                 elif q_type == "artist":
                     self.after(0, lambda: self.search_type_menu.set("Albums"))
@@ -803,7 +819,7 @@ class QBZRipUI(CTk.CTk):
                     res = {"albums": {"items": albums, "total": len(albums)}}
                     self.after(0, self.finish_search, res, "albums", None, gen)
             except Exception as e:
-                self.after(0, self.finish_search, None, search_type, f"Error fetching Qobuz item: {e}", gen)
+                self.after(0, self.finish_search, None, search_type, f"Error fetching Q-Buz item: {e}", gen)
             return
 
         # 3. Smart Catalog Search
@@ -841,6 +857,9 @@ class QBZRipUI(CTk.CTk):
         self._raw_search_items = [it for it in items if isinstance(it, dict) and "id" in it]
         self._current_search_total = max(total, len(self._raw_search_items))
         self._current_search_type = effective_type
+        for it in self._raw_search_items:
+            if "_category" not in it and effective_type not in ("all", "everything"):
+                it["_category"] = effective_type
         self.apply_filter_and_sort()
 
     def apply_filter_and_sort(self):
@@ -853,7 +872,7 @@ class QBZRipUI(CTk.CTk):
 
         if not self._raw_search_items:
             self.results_stats_lbl.configure(text="")
-            lbl = CTk.CTkLabel(self.results_scroll, text="No results found in Qobuz catalog.", font=CTk.CTkFont(size=14))
+            lbl = CTk.CTkLabel(self.results_scroll, text="No results found in Q-Buz catalog.", font=CTk.CTkFont(size=14))
             lbl.pack(pady=40)
             return
 
@@ -965,17 +984,25 @@ class QBZRipUI(CTk.CTk):
 
     def _render_result_row(self, item, batch_id=None):
         item_cat = item.get("_category")
-        if not item_cat:
-            if "performer" in item or "album" in item or "duration" in item:
-                item_cat = "tracks"
-            elif "tracks_count" in item and "artist" in item:
+        if not item_cat or item_cat in ("all", "everything"):
+            # Accurate detection based on Q-Buz API object schemas
+            if ("tracks_count" in item and ("artist" in item or "label" in item)) or "upc" in item or ("tracks" in item and "is_collaborative" not in item):
                 item_cat = "albums"
-            elif "tracks_count" in item:
+            elif "tracks_count" in item and ("owner" in item or "is_collaborative" in item or "playlist" in str(item.get("id"))):
                 item_cat = "playlists"
-            elif "name" in item and "title" not in item:
+            elif "tracks_count" in item:
+                item_cat = "albums"
+            elif "albums_count" in item or ("name" in item and "title" not in item):
                 item_cat = "artists"
+            elif "track_number" in item or ("album" in item and isinstance(item.get("album"), dict)) or "isrc" in item:
+                item_cat = "tracks"
+            elif self._current_search_type not in ("all", "everything"):
+                item_cat = self._current_search_type
+            elif not str(item.get("id", "")).isdigit():
+                # Alphanumeric IDs (like 'es45w03nwb5eb') are always albums on Q-Buz
+                item_cat = "albums"
             else:
-                item_cat = self._current_search_type if self._current_search_type not in ("all", "everything") else "tracks"
+                item_cat = "tracks"
 
         # Modern card frame: eliminates separate divider frames to save RAM and widget overhead
         row = CTk.CTkFrame(self.results_scroll, fg_color="#141c28", corner_radius=6, height=88)
@@ -1094,7 +1121,7 @@ class QBZRipUI(CTk.CTk):
                 width=95,
                 font=CTk.CTkFont(size=11, weight="bold")
             )
-            dl_btn.configure(command=lambda i=item["id"], t=title, b=dl_btn: self.queue_track_download(i, t, btn=b))
+            dl_btn.configure(command=lambda i=item["id"], t=title, b=dl_btn, tm=dict(item): self.queue_track_download(i, t, btn=b, track_meta=tm))
             dl_btn.pack(side="right", padx=(5, 0))
 
             prev_btn = CTk.CTkButton(
@@ -1478,6 +1505,15 @@ class QBZRipUI(CTk.CTk):
                 self.after(0, self.finish_search, None, "albums", str(e))
         self.run_async(fetch())
 
+    def trigger_album_view(self, album_id, album_title):
+        """Fetches album details and opens the interactive track selection checklist modal."""
+        if not album_id:
+            return
+        self.search_entry.delete(0, "end")
+        self.search_entry.insert(0, f"https://play.qobuz.com/album/{album_id}")
+        self.queue_album_downloads(album_id, album_title or f"Album {album_id}")
+
+
     # --- Queue View ---
 
     def create_queue_view(self):
@@ -1592,15 +1628,49 @@ class QBZRipUI(CTk.CTk):
         elif pending > 0:
             self._queue_active = True
 
-    def queue_track_download(self, track_id, title, parent_folder=None, btn=None):
-        is_already = (
-            track_id in self.queue_items
-            or (isinstance(track_id, int) and str(track_id) in self.queue_items)
-            or (isinstance(track_id, str) and track_id.isdigit() and int(track_id) in self.queue_items)
-        )
-        if is_already:
-            messagebox.showinfo("Already in Queue", f"'{title}' is already queued.")
+    def queue_track_download(self, track_id, title, parent_folder=None, btn=None, track_meta=None):
+        clean_track_id = str(track_id).strip()
+
+        # Intercept if track_id is actually an album ID or track_meta is an album object
+        is_album = False
+        if not clean_track_id.isdigit():
+            is_album = True
+        elif track_meta and isinstance(track_meta, dict):
+            if "tracks_count" in track_meta and "track_number" not in track_meta:
+                is_album = True
+
+        if is_album:
+            print(f"[Q-Buz UI] Intercepted album ID '{clean_track_id}' in queue_track_download, redirecting to queue_album_downloads...")
+            self.queue_album_downloads(clean_track_id, title, btn=btn)
             return
+
+        existing_key = None
+        if clean_track_id in self.queue_items:
+            existing_key = clean_track_id
+        elif isinstance(track_id, int) and track_id in self.queue_items:
+            existing_key = track_id
+
+        if existing_key is not None:
+            item = self.queue_items[existing_key]
+            st = item.get("status")
+            if st in ["failed", "cancelled"]:
+                retry_fn = item.get("retry_func")
+                if retry_fn:
+                    retry_fn()
+                if btn and btn.winfo_exists():
+                    btn.configure(text="Queued ✓", state="disabled", fg_color="#2b374a")
+                return
+            elif st == "completed":
+                if btn and btn.winfo_exists():
+                    btn.configure(text="Downloaded ✓", state="disabled", fg_color="#2b374a")
+                return
+            else:
+                # Already queued or downloading
+                if btn and btn.winfo_exists():
+                    btn.configure(text="Queued ✓", state="disabled", fg_color="#2b374a")
+                return
+
+        track_id = clean_track_id
 
         if btn and btn.winfo_exists():
             btn.configure(text="Queued ✓", state="disabled", fg_color="#2b374a")
@@ -1705,6 +1775,7 @@ class QBZRipUI(CTk.CTk):
             "status_lbl": status_lbl,
             "status": "queued",
             "parent_folder": parent_folder,
+            "track_meta": track_meta,
             "task_state": task_state,
             "ctrl_frame": ctrl_frame,
             "pause_btn": pause_btn,
@@ -1740,7 +1811,7 @@ class QBZRipUI(CTk.CTk):
 
                 def start_dl(selected):
                     art_obj = alb.get("artist") if isinstance(alb, dict) else {}
-                    art_name = art_obj.get("name", "Unknown Artist") if isinstance(art_obj, dict) else "Unknown Artist"
+                    art_name = (art_obj.get("name") if isinstance(art_obj, dict) else None) or "Unknown Artist"
                     safe_artist = sanitize_filename(art_name)
                     safe_album = sanitize_filename(album_title)
                     folder_name = f"{safe_artist} - {safe_album}"
@@ -1748,7 +1819,18 @@ class QBZRipUI(CTk.CTk):
                         folder_name = folder_name[:100].rstrip(". ")
                     parent_dir = os.path.join(self.config.download_directory, folder_name)
                     for t in selected:
-                        self.queue_track_download(t["id"], f"{album_title} - {t.get('title')}", parent_folder=parent_dir)
+                        if not isinstance(t, dict) or not t.get("id"):
+                            continue
+                        t_meta = dict(t)
+                        if "album" not in t_meta or not t_meta.get("album"):
+                            t_meta["album"] = alb
+                        t_title = t.get("title") or f"Track {t.get('id')}"
+                        self.queue_track_download(
+                            t["id"],
+                            f"{album_title} - {t_title}",
+                            parent_folder=parent_dir,
+                            track_meta=t_meta
+                        )
                     self.switch_view("queue")
 
                 self.after(0, lambda: TrackSelectionModal(self, album_title, tracks, start_dl))
@@ -1786,13 +1868,16 @@ class QBZRipUI(CTk.CTk):
                         safe_pl = safe_pl[:100].rstrip(". ")
                     parent_dir = os.path.join(self.config.download_directory, safe_pl)
                     for t in selected:
-                        t_title = t.get('title', 'Track')
+                        if not isinstance(t, dict) or not t.get("id"):
+                            continue
+                        t_meta = dict(t)
+                        t_title = t.get('title') or f"Track {t.get('id')}"
                         t_perf = t.get('performer') if isinstance(t.get('performer'), dict) else {}
                         t_art = t_perf.get('name', '')
                         if not t_art and isinstance(t.get('artist'), dict):
                             t_art = t.get('artist', {}).get('name', '')
                         disp_name = f"{t_title} - {t_art}" if t_art else f"{playlist_title} - {t_title}"
-                        self.queue_track_download(t["id"], disp_name, parent_folder=parent_dir)
+                        self.queue_track_download(t["id"], disp_name, parent_folder=parent_dir, track_meta=t_meta)
                     self.switch_view("queue")
 
                 self.after(0, lambda: TrackSelectionModal(self, playlist_title, tracks, start_dl))
@@ -1834,11 +1919,11 @@ class QBZRipUI(CTk.CTk):
                                     performer = itm.get('performer') if isinstance(itm.get('performer'), dict) else {}
                                     artist_name = performer.get('name', '')
                                     t_title = f"{itm.get('title')} - {artist_name}" if artist_name else itm.get('title', 'Track')
-                                    self.after(0, lambda i=itm["id"], t=t_title: self.queue_track_download(i, t))
+                                    self.after(0, lambda i=itm["id"], t=t_title, tm=itm: self.queue_track_download(i, t, track_meta=tm))
                                 queued_count += 1
                         continue
 
-                    # 2. Direct Qobuz URLs or IDs
+                    # 2. Direct Q-Buz URLs or IDs
                     q_type, q_id = parse_qobuz_url(url)
                     if q_type == "track":
                         trk = await self.api.get_track(q_id)
@@ -1846,7 +1931,7 @@ class QBZRipUI(CTk.CTk):
                             performer = trk.get('performer') if isinstance(trk.get('performer'), dict) else {}
                             artist_name = performer.get('name', '')
                             t_title = f"{trk.get('title')} - {artist_name}" if artist_name else trk.get('title', 'Track')
-                            self.after(0, lambda i=trk["id"], t=t_title: self.queue_track_download(i, t))
+                            self.after(0, lambda i=trk["id"], t=t_title, tm=trk: self.queue_track_download(i, t, track_meta=tm))
                             queued_count += 1
                     elif q_type == "album":
                         alb = await self.api.get_album(q_id)
@@ -1865,7 +1950,7 @@ class QBZRipUI(CTk.CTk):
                                 performer = trk.get('performer') if isinstance(trk.get('performer'), dict) else {}
                                 artist_name = performer.get('name', '')
                                 t_title = f"{trk.get('title')} - {artist_name}" if artist_name else trk.get('title', 'Track')
-                                self.after(0, lambda i=trk["id"], t=t_title: self.queue_track_download(i, t))
+                                self.after(0, lambda i=trk["id"], t=t_title, tm=trk: self.queue_track_download(i, t, track_meta=tm))
                                 queued_count += 1
                                 continue
                         except Exception:
@@ -1912,7 +1997,7 @@ class QBZRipUI(CTk.CTk):
                         tracks = alb.get("items", [])
 
                 art_obj = alb.get("artist") if isinstance(alb, dict) else {}
-                art_name = art_obj.get("name", "Unknown Artist") if isinstance(art_obj, dict) else "Unknown Artist"
+                art_name = (art_obj.get("name") if isinstance(art_obj, dict) else None) or "Unknown Artist"
                 safe_artist = sanitize_filename(art_name)
                 safe_album = sanitize_filename(album_title)
                 folder_name = f"{safe_artist} - {safe_album}"
@@ -1921,7 +2006,11 @@ class QBZRipUI(CTk.CTk):
                 parent_dir = os.path.join(self.config.download_directory, folder_name)
                 for t in tracks:
                     if isinstance(t, dict) and t.get("id"):
-                        self.after(0, lambda tid=t["id"], tt=f"{album_title} - {t.get('title', 'Track')}", pd=parent_dir: self.queue_track_download(tid, tt, parent_folder=pd))
+                        t_meta = dict(t)
+                        if "album" not in t_meta or not t_meta.get("album"):
+                            t_meta["album"] = alb
+                        t_title = t.get('title') or f"Track {t.get('id')}"
+                        self.after(0, lambda tid=t["id"], tt=f"{album_title} - {t_title}", pd=parent_dir, tm=t_meta: self.queue_track_download(tid, tt, parent_folder=pd, track_meta=tm))
             except Exception as e:
                 print(f"Failed to queue entire album: {e}")
         self.run_async(f())
@@ -1947,13 +2036,14 @@ class QBZRipUI(CTk.CTk):
                 for t in tracks:
                     if not isinstance(t, dict) or not t.get("id"):
                         continue
-                    t_title = t.get('title', 'Track')
+                    t_meta = dict(t)
+                    t_title = t.get('title') or f"Track {t.get('id')}"
                     t_perf = t.get('performer') if isinstance(t.get('performer'), dict) else {}
                     t_art = t_perf.get('name', '')
                     if not t_art and isinstance(t.get('artist'), dict):
                         t_art = t.get('artist', {}).get('name', '')
                     disp_name = f"{t_title} - {t_art}" if t_art else f"{playlist_title} - {t_title}"
-                    self.after(0, lambda tid=t["id"], tt=disp_name, pd=parent_dir: self.queue_track_download(tid, tt, parent_folder=pd))
+                    self.after(0, lambda tid=t["id"], tt=disp_name, pd=parent_dir, tm=t_meta: self.queue_track_download(tid, tt, parent_folder=pd, track_meta=tm))
             except Exception as e:
                 print(f"Failed to queue entire playlist: {e}")
         self.run_async(f())
@@ -2005,7 +2095,8 @@ class QBZRipUI(CTk.CTk):
                 track_id,
                 progress_callback=update_ui,
                 task_state=item["task_state"],
-                parent_folder=item["parent_folder"]
+                parent_folder=item["parent_folder"],
+                track_meta=item.get("track_meta")
             )
             success = res[0]
             msg = res[1]
@@ -2052,7 +2143,7 @@ class QBZRipUI(CTk.CTk):
             item["status"] = "failed"
             err_text = str(e)
             print(f"[Download Error] Track {track_id} failed: {err_text}")
-            if "Qobuz API error" not in err_text and "404" not in err_text:
+            if "API error" not in err_text and "404" not in err_text:
                 import traceback
                 traceback.print_exc()
             def on_err():
@@ -2079,7 +2170,7 @@ class QBZRipUI(CTk.CTk):
         self.settings_view.grid_columnconfigure(0, weight=1)
 
         # Title
-        hdr = CTk.CTkLabel(self.settings_view, text="⚙️ Preferences & Qobuz Credentials", font=CTk.CTkFont(size=18, weight="bold"))
+        hdr = CTk.CTkLabel(self.settings_view, text="⚙️ Preferences & Q-Buz Credentials", font=CTk.CTkFont(size=18, weight="bold"))
         hdr.pack(anchor="w", padx=20, pady=(15, 20))
 
         # 1. Download Quality Tier
@@ -2152,15 +2243,15 @@ class QBZRipUI(CTk.CTk):
         self.con_slider.pack(fill="x", padx=15, pady=(0, 10))
         self.con_slider.set(self.config.concurrent_downloads)
 
-        # 5. Qobuz Authentication - Primary: Web Session Token
+        # 5. Q-Buz Authentication - Primary: Web Session Token
         token_frame = CTk.CTkFrame(self.settings_view, fg_color="#141c28")
         token_frame.pack(fill="x", padx=20, pady=8)
 
-        CTk.CTkLabel(token_frame, text="🔑 Qobuz Login (Metode Utama: Web Session Token)", font=CTk.CTkFont(size=14, weight="bold"), text_color=COLOR_ACCENT).pack(anchor="w", padx=15, pady=(12, 4))
+        CTk.CTkLabel(token_frame, text="🔑 Q-Buz Login (Metode Utama: Web Session Token)", font=CTk.CTkFont(size=14, weight="bold"), text_color=COLOR_ACCENT).pack(anchor="w", padx=15, pady=(12, 4))
         
         guide_text = (
-            "Karena Qobuz membatasi login password langsung pada aplikasi pihak ketiga, gunakan token dari browser:\n"
-            "1. Buka play.qobuz.com di browser (Chrome/Edge/Firefox) & pastikan sudah login akun Qobuz.\n"
+            "Karena Q-Buz membatasi login password langsung pada aplikasi pihak ketiga, gunakan token dari browser:\n"
+            "1. Buka play.qobuz.com di browser (Chrome/Edge/Firefox) & pastikan sudah login akun Q-Buz.\n"
             "2. Tekan tombol F12 (Developer Tools) -> pilih tab 'Application' (atau 'Storage' di Firefox).\n"
             "3. Di panel kiri, klik 'Local Storage' -> https://play.qobuz.com\n"
             "4. Klik 'localuser' -> salin (copy) nilai teks 'userAuthToken' atau 'token'.\n"
@@ -2190,14 +2281,14 @@ class QBZRipUI(CTk.CTk):
         self.logout_token_btn = CTk.CTkButton(token_btn_row, text="Logout", fg_color="#f44336", hover_color="#d32f2f", command=self.do_logout)
         self.logout_token_btn.pack(side="left", padx=10)
 
-        # 5B. Qobuz App ID (X-App-Id) Configuration & Auto-Scraper
+        # 5B. Q-Buz App ID (X-App-Id) Configuration & Auto-Scraper
         appid_frame = CTk.CTkFrame(self.settings_view, fg_color="#141c28")
         appid_frame.pack(fill="x", padx=20, pady=8)
 
-        CTk.CTkLabel(appid_frame, text="🛡️ Qobuz Client App ID (X-App-Id)", font=CTk.CTkFont(size=14, weight="bold"), text_color=COLOR_ACCENT).pack(anchor="w", padx=15, pady=(12, 4))
+        CTk.CTkLabel(appid_frame, text="🛡️ Q-Buz Client App ID (X-App-Id)", font=CTk.CTkFont(size=14, weight="bold"), text_color=COLOR_ACCENT).pack(anchor="w", padx=15, pady=(12, 4))
 
         appid_guide = (
-            "App ID diperlukan Qobuz untuk pencarian katalog & streaming audio.\n"
+            "App ID diperlukan Q-Buz untuk pencarian katalog & streaming audio.\n"
             "• Klik '🔍 Auto-Detect' untuk mendeteksi App ID aktif dari web player secara otomatis.\n"
             "• Atau salin nilai 'X-App-Id' (9 angka) dari browser DevTools (F12) -> Network tab (filter: api.json/0.2)."
         )
@@ -2207,7 +2298,7 @@ class QBZRipUI(CTk.CTk):
         appid_input_box.pack(fill="x", padx=15, pady=4)
         appid_input_box.grid_columnconfigure(0, weight=1)
 
-        self.appid_entry = CTk.CTkEntry(appid_input_box, placeholder_text="9-digit App ID (misal: 712108782)...")
+        self.appid_entry = CTk.CTkEntry(appid_input_box, placeholder_text="9-digit App ID (misal: 798273057)...")
         self.appid_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         if self.config.app_id:
             self.appid_entry.insert(0, self.config.app_id)
@@ -2222,12 +2313,12 @@ class QBZRipUI(CTk.CTk):
         CTk.CTkLabel(pwd_frame, text="✉️ Metode Alternatif: Email & Password", font=CTk.CTkFont(size=13, weight="bold")).pack(anchor="w", padx=15, pady=(10, 2))
         CTk.CTkLabel(pwd_frame, text="(Catatan: Akun yang dibuat via Google/Apple atau versi baru wajib menggunakan metode token di atas).", font=CTk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(anchor="w", padx=15, pady=(0, 6))
 
-        self.email_entry = CTk.CTkEntry(pwd_frame, placeholder_text="Email Qobuz")
+        self.email_entry = CTk.CTkEntry(pwd_frame, placeholder_text="Email Q-Buz")
         self.email_entry.pack(fill="x", padx=15, pady=4)
         if self.config.user_email:
             self.email_entry.insert(0, self.config.user_email)
 
-        self.pwd_entry = CTk.CTkEntry(pwd_frame, placeholder_text="Password Qobuz", show="*")
+        self.pwd_entry = CTk.CTkEntry(pwd_frame, placeholder_text="Password Q-Buz", show="*")
         self.pwd_entry.pack(fill="x", padx=15, pady=4)
 
         pwd_btn_row = CTk.CTkFrame(pwd_frame, fg_color="transparent")
@@ -2312,7 +2403,7 @@ class QBZRipUI(CTk.CTk):
         email = self.email_entry.get().strip()
         pwd = self.pwd_entry.get().strip()
         if not email or not pwd:
-            messagebox.showwarning("Incomplete", "Please enter your Qobuz email and password.")
+            messagebox.showwarning("Incomplete", "Please enter your Q-Buz email and password.")
             return
 
         self.login_btn.configure(state="disabled", text="Logging in...")
@@ -2321,16 +2412,16 @@ class QBZRipUI(CTk.CTk):
             try:
                 data = await self.api.login(email, pwd)
                 def ok():
-                    self.login_btn.configure(state="normal", text="Login to Qobuz")
+                    self.login_btn.configure(state="normal", text="Login to Q-Buz")
                     self.update_user_display(True)
                     messagebox.showinfo("Login Succeeded", f"Welcome, {self.config.user_display_name}!\nPlan: {self.config.subscription_plan}")
                 self.after(0, ok)
             except Exception as e:
                 err_msg = str(e)
                 def fail():
-                    self.login_btn.configure(state="normal", text="Login to Qobuz")
+                    self.login_btn.configure(state="normal", text="Login to Q-Buz")
                     self.update_user_display(False)
-                    messagebox.showerror("Login Failed", f"Could not log in to Qobuz:\n{err_msg}")
+                    messagebox.showerror("Login Failed", f"Could not log in to Q-Buz:\n{err_msg}")
                 self.after(0, fail)
         self.run_async(login_coro())
 
@@ -2363,7 +2454,7 @@ class QBZRipUI(CTk.CTk):
     def do_save_token(self):
         tok = self._extract_token(self.token_entry.get())
         if not tok:
-            messagebox.showwarning("Empty Token", "Please paste your Qobuz user_auth_token.")
+            messagebox.showwarning("Empty Token", "Please paste your Q-Buz user_auth_token.")
             return
 
         # Ensure cleaned token is in entry box
@@ -2377,7 +2468,7 @@ class QBZRipUI(CTk.CTk):
             try:
                 res = await self.api.verify_auth_token(tok)
                 if res:
-                    name = self.config.user_display_name or "Qobuz Member"
+                    name = self.config.user_display_name or "Q-Buz Member"
                     plan = self.config.subscription_plan or "Studio Active"
                     def on_ok():
                         if hasattr(self, "appid_entry") and self.appid_entry.winfo_exists():
@@ -2392,7 +2483,7 @@ class QBZRipUI(CTk.CTk):
                 else:
                     self.after(0, lambda: messagebox.showerror(
                         "Token Verification Failed",
-                        "Token tidak dapat diverifikasi oleh Qobuz API.\n\n"
+                        "Token tidak dapat diverifikasi oleh Q-Buz API.\n\n"
                         "Penyebab umum:\n"
                         "1. Token sudah expired dari browser sebelumnya.\n"
                         "2. Token tersalin tidak lengkap.\n\n"
@@ -2410,7 +2501,7 @@ class QBZRipUI(CTk.CTk):
         self.token_entry.delete(0, "end")
         self.pwd_entry.delete(0, "end")
         self.update_user_display(False)
-        messagebox.showinfo("Logged Out", "You have been logged out from Qobuz.")
+        messagebox.showinfo("Logged Out", "You have been logged out from Q-Buz.")
 
     def check_login_status(self):
         if self.config.user_auth_token:
@@ -2448,7 +2539,8 @@ class QBZRipUI(CTk.CTk):
                     session_data.append({
                         "track_id": tid,
                         "title": item.get("title", f"Track {tid}"),
-                        "parent_folder": item.get("parent_folder")
+                        "parent_folder": item.get("parent_folder"),
+                        "track_meta": item.get("track_meta")
                     })
 
             session_file = os.path.join(self.config.config_dir, "session.json")
@@ -2492,13 +2584,14 @@ class QBZRipUI(CTk.CTk):
                         tid = data.get("track_id")
                         title = data.get("title")
                         parent_folder = data.get("parent_folder")
+                        track_meta = data.get("track_meta")
                         is_already_queued = (
                             tid in self.queue_items
                             or (isinstance(tid, int) and str(tid) in self.queue_items)
                             or (isinstance(tid, str) and str(tid).isdigit() and int(tid) in self.queue_items)
                         )
                         if tid and not is_already_queued:
-                            self.queue_track_download(tid, title, parent_folder=parent_folder)
+                            self.queue_track_download(tid, title, parent_folder=parent_folder, track_meta=track_meta)
                             restored_count += 1
 
                     if restored_count > 0:

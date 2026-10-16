@@ -3,21 +3,22 @@ import os
 import pathlib
 
 # Default public app keys
-DEFAULT_APP_ID = "712108782"
-DEFAULT_APP_SECRET = "e91240c345167dbdbef56e07a68e98ec"
+DEFAULT_APP_ID = "798273057"
+DEFAULT_APP_SECRET = "abb21364945c0583309667d13ca3d93a"
 
-# Known public Qobuz client app credentials for auto-probing
+# Known public Q-Buz client app credentials for auto-probing
 KNOWN_APP_PAIRS = [
     ("798273057", "abb21364945c0583309667d13ca3d93a", "Web Client v8.2"),
-    ("712108782", "e91240c345167dbdbef56e07a68e98ec", "Desktop Client"),
-    ("809633634", "b27926955a50d249f3e46c76dbb4fc7d", "Web Bundle"),
-    ("285431633", "a4f3b764b82d029519398f6d2f7881be", "Android Client"),
+    ("809633634", "b27926955a50d249f3e46c76dbb4fc7d", "Web Client Bundle"),
+    ("579169010", "e28e9f3d71d274a605693111477d4fe2", "Hardware Streamer (Studio Master 24/192)"),
+    ("285431633", "a4f3b764b82d029519398f6d2f7881be", "Android Client (Studio Master 24/192)"),
+    ("579939560", "fa31fc13e7a28e7d70bb61e91aa9e178", "Desktop Hi-Res"),
     ("385651648", "b27926955a50d249f3e46c76dbb4fc7d", "iOS Client"),
     ("598925120", "b27926955a50d249f3e46c76dbb4fc7d", "Soundgenic"),
-    ("100000000", "b27926955a50d249f3e46c76dbb4fc7d", "Legacy Web Player"),
+    ("100000000", "b27926955a50d249f3e46c76dbb4fc7d", "Legacy Player"),
 ]
 
-# Audio format definitions in Qobuz
+# Audio format definitions in Q-Buz
 FORMAT_LABELS = {
     27: "24-bit / up to 192kHz (Studio Master)",
     7: "24-bit / up to 96kHz (Hi-Res)",
@@ -36,7 +37,7 @@ class Config:
         self.format_id = 27
         
         # Paths & Naming
-        default_music = os.path.join(pathlib.Path.home(), "Music", "Qobuz")
+        default_music = os.path.join(pathlib.Path.home(), "Music", "Q-Buz")
         self.download_directory = default_music
         self.naming_template = "{artist}/{album}/{track_num} - {title}.{ext}"
         

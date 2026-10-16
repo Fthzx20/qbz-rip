@@ -8,13 +8,14 @@ import aiohttp
 from .config import KNOWN_APP_PAIRS
 
 class QobuzAPI:
-    """Asynchronous client for interacting with the Qobuz REST API v0.2."""
+    """Asynchronous client for interacting with the Q-Buz REST API v0.2."""
     
     BASE_URL = "https://www.qobuz.com/api.json/0.2"
     
     def __init__(self, config):
         self.config = config
         self.session = None
+        self._working_stream_pair = None
 
     async def get_session(self):
         """Lazy-loaded aiohttp client session with TCP connection pooling and keepalive."""
@@ -31,14 +32,14 @@ class QobuzAPI:
 
     def _generate_track_signature(self, track_id, format_id, timestamp):
         """
-        Generates standard Qobuz MD5 signature for track/getFileUrl.
+        Generates standard Q-Buz MD5 signature for track/getFileUrl.
         Formula: MD5("trackgetFileUrlformat_id" + format_id + "intentstreamtrack_id" + track_id + timestamp + app_secret)
         """
         raw = f"trackgetFileUrlformat_id{format_id}intentstreamtrack_id{track_id}{timestamp}{self.config.app_secret}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     def _generate_signature(self, endpoint, params):
-        """Generates MD5 request signature for general protected Qobuz endpoints (like user/login)."""
+        """Generates MD5 request signature for general protected Q-Buz endpoints (like user/login)."""
         endpoint_slug = endpoint.replace("/", "")
         # Filter and convert to string
         filtered = {k: str(v) for k, v in params.items() if v is not None and k not in ["request_sig"]}
@@ -49,30 +50,9 @@ class QobuzAPI:
 
     async def auto_refresh_app_credentials(self):
         """
-        Attempts to scrape live credentials from play.qobuz.com web bundle,
-        or probes candidate App IDs to find one that accepts requests.
+        Probes known candidate App IDs (Desktop, Android) to find one that accepts requests.
+        Avoids Web Player ID which cannot stream Studio Master audio.
         """
-        try:
-            from .bundle_scraper import scrape_qobuz_web_credentials
-            scraped = await scrape_qobuz_web_credentials()
-            if scraped and scraped.get("app_id"):
-                new_aid = scraped["app_id"]
-                new_sec = scraped.get("app_secret")
-                updated = False
-                if new_aid != self.config.app_id:
-                    self.config.app_id = new_aid
-                    updated = True
-                if new_sec and new_sec != self.config.app_secret:
-                    self.config.app_secret = new_sec
-                    updated = True
-                if updated:
-                    self.config.save()
-                    print(f"[Qobuz API] Auto-updated App credentials from web bundle: ID {self.config.app_id}, Secret {self.config.app_secret[:6]}...")
-                    return True
-        except Exception as e:
-            print(f"[Qobuz API] Scraper auto-refresh attempt error: {e}")
-
-        # If scraping did not yield a new ID, probe known candidate App IDs
         session = await self.get_session()
         for aid, asec, lbl in KNOWN_APP_PAIRS:
             if aid == self.config.app_id or aid == "100000000":
@@ -92,7 +72,7 @@ class QobuzAPI:
                         self.config.app_id = aid
                         self.config.app_secret = asec
                         self.config.save()
-                        print(f"[Qobuz API] Switched to working candidate App ID: {aid} ({lbl})")
+                        print(f"[Q-Buz API] Switched to working candidate App ID: {aid} ({lbl})")
                         return True
             except Exception:
                 continue
@@ -106,7 +86,11 @@ class QobuzAPI:
         if params is None:
             params = {}
             
-        params["app_id"] = self.config.app_id
+        if "app_id" not in params:
+            params["app_id"] = self.config.app_id
+
+        current_app_id = params.get("app_id") or self.config.app_id
+
         if self.config.user_auth_token and "user_auth_token" not in params:
             params["user_auth_token"] = self.config.user_auth_token
 
@@ -118,16 +102,16 @@ class QobuzAPI:
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "X-App-Id": self.config.app_id
+            "X-App-Id": current_app_id
         }
-        if self.config.user_auth_token:
+        if self.config.user_auth_token and "user_auth_token" in params:
             headers["X-User-Auth-Token"] = self.config.user_auth_token
 
         for attempt in range(3):
             try:
-                # Ensure latest config app_id is passed in params and headers
-                params["app_id"] = self.config.app_id
-                headers["X-App-Id"] = self.config.app_id
+                current_app_id = params.get("app_id") or self.config.app_id
+                params["app_id"] = current_app_id
+                headers["X-App-Id"] = current_app_id
                 if sign:
                     params["request_sig"] = self._generate_signature(endpoint, params)
 
@@ -152,32 +136,39 @@ class QobuzAPI:
                         except Exception:
                             err_msg = text
 
-                        # Auto-recovery: If invalid/missing app_id, refresh and retry once
-                        if resp.status == 400 and ("app_id" in err_msg.lower() or "missing app_id" in err_msg.lower()) and "request_sig" not in err_msg.lower() and "signature" not in err_msg.lower() and attempt < 2:
-                            print(f"[Qobuz API] Detected App ID error ({err_msg[:60]}), triggering auto-refresh...")
+                        # Auto-recovery: If invalid/missing app_id on general metadata endpoints, refresh once
+                        if resp.status == 400 and endpoint != "track/getFileUrl" and ("app_id" in err_msg.lower() or "missing app_id" in err_msg.lower()) and "request_sig" not in err_msg.lower() and "signature" not in err_msg.lower() and attempt < 1:
+                            print(f"[Q-Buz API] Detected App ID error ({err_msg[:60]}), checking alternate candidate App ID...")
                             refreshed = await self.auto_refresh_app_credentials()
                             if refreshed:
                                 params["app_id"] = self.config.app_id
                                 headers["X-App-Id"] = self.config.app_id
                                 continue
 
-                        raise Exception(f"Qobuz API error ({resp.status}): {err_msg[:250]}")
+                        # Auto-recovery: If 401 on public metadata endpoints, retry without expired/invalid user_auth_token
+                        if resp.status == 401 and ("token" in err_msg.lower() or "auth" in err_msg.lower() or "user" in err_msg.lower()) and endpoint in ["track/get", "album/get", "playlist/get", "artist/get", "catalog/search"] and attempt < 2:
+                            print(f"[Q-Buz API] Stale/invalid token rejected on {endpoint}, retrying without token...")
+                            params.pop("user_auth_token", None)
+                            headers.pop("X-User-Auth-Token", None)
+                            continue
+
+                        raise Exception(f"Q-Buz API error ({resp.status}): {err_msg[:250]}")
             except aiohttp.ClientError as e:
                 if attempt == 2:
-                    raise Exception(f"Network error communicating with Qobuz: {e}")
+                    raise Exception(f"Network error communicating with Q-Buz: {e}")
                 await asyncio.sleep(1.0)
 
-        raise Exception("Qobuz API request failed after retries.")
+        raise Exception("Q-Buz API request failed after retries.")
 
     # --- Authentication Methods ---
 
     async def login(self, username, password):
-        """Authenticates user with Qobuz email and password using MD5 hashing and request signature."""
+        """Authenticates user with Q-Buz email and password using MD5 hashing and request signature."""
         email_clean = username.strip()
         pwd_clean = password.strip()
         pwd_md5 = hashlib.md5(pwd_clean.encode("utf-8")).hexdigest()
 
-        # Qobuz API v0.2 expects MD5 hashed password and signed request
+        # Q-Buz API v0.2 expects MD5 hashed password and signed request
         attempts = [
             {"email": email_clean, "password": pwd_md5},
             {"username": email_clean, "password": pwd_md5},
@@ -207,13 +198,13 @@ class QobuzAPI:
                 continue
 
         raise Exception(
-            f"Login failed ({last_err}). Qobuz restricts direct password logins on many modern accounts. "
+            f"Login failed ({last_err}). Q-Buz restricts direct password logins on many modern accounts. "
             "Please log in using your 'Web Session Token (user_auth_token)' from play.qobuz.com."
         )
 
     async def verify_auth_token(self, token=None):
         """
-        Validates user_auth_token against Qobuz API.
+        Validates user_auth_token against Q-Buz API.
         Automatically probes candidate App ID pairs (Web Player, Desktop, Mobile)
         to match whichever platform issued this session token, saving the working pair to config.
         """
@@ -243,28 +234,36 @@ class QobuzAPI:
         if not self.config.user_auth_token:
             return None
 
-        # Build list of (app_id, app_secret, label) to probe
+        # Build list of (app_id, app_secret, label) to probe, supporting Web Player, Desktop, and Mobile session tokens
         candidates = []
 
-        # Try live scraping web bundle first (it directly validates stream signing secret)
-        try:
-            from .bundle_scraper import scrape_qobuz_web_credentials
-            scraped = await scrape_qobuz_web_credentials(timeout_sec=15)
-            if scraped and scraped.get("app_id") and scraped.get("app_secret"):
-                s_aid = scraped["app_id"]
-                s_sec = scraped["app_secret"]
-                candidates.append((s_aid, s_sec, "Live Web Scraper"))
-                self.config.app_id = s_aid
-                self.config.app_secret = s_sec
-                self.config.save()
-                print(f"[Qobuz Auth] Applied verified stream credentials: App ID {s_aid}, Secret {s_sec[:6]}...")
-        except Exception as e:
-            print(f"[Qobuz Auth] Scraper probe error: {e}")
-
+        # 1. Active Config pair if set
         if self.config.app_id and self.config.app_secret and self.config.app_id != "100000000":
-            if not any(c[0] == self.config.app_id and c[1] == self.config.app_secret for c in candidates):
-                candidates.append((self.config.app_id, self.config.app_secret, "Active Config"))
+            candidates.append((self.config.app_id, self.config.app_secret, "Active Config"))
 
+        # 2. Web Player Clients (matches tokens copied from play.qobuz.com)
+        web_pair_1 = ("798273057", "abb21364945c0583309667d13ca3d93a", "Web Client v8.2")
+        web_pair_2 = ("809633634", "b27926955a50d249f3e46c76dbb4fc7d", "Web Client Bundle")
+        for wp in [web_pair_1, web_pair_2]:
+            if not any(c[0] == wp[0] for c in candidates):
+                candidates.append(wp)
+
+        # 3. Hardware Streamer (Studio Master 24-bit/192kHz)
+        hardware_pair = ("579169010", "e28e9f3d71d274a605693111477d4fe2", "Hardware Streamer (Studio Master 24/192)")
+        if not any(c[0] == hardware_pair[0] for c in candidates):
+            candidates.append(hardware_pair)
+
+        # 4. Android Client (Studio Master 24-bit/192kHz)
+        android_pair = ("285431633", "a4f3b764b82d029519398f6d2f7881be", "Android Client (Studio Master 24/192)")
+        if not any(c[0] == android_pair[0] for c in candidates):
+            candidates.append(android_pair)
+
+        # 5. Desktop Hi-Res
+        hires_pair = ("579939560", "fa31fc13e7a28e7d70bb61e91aa9e178", "Desktop Hi-Res")
+        if not any(c[0] == hires_pair[0] for c in candidates):
+            candidates.append(hires_pair)
+
+        # 6. Remaining Known App Pairs
         for aid, asec, lbl in KNOWN_APP_PAIRS:
             if aid != "100000000" and not any(c[0] == aid for c in candidates):
                 candidates.append((aid, asec, lbl))
@@ -294,11 +293,11 @@ class QobuzAPI:
                             self.config.app_secret = asec
                             self.config.user_id = str(user_data.get("id", self.config.user_id))
                             self.config.user_email = user_data.get("email", self.config.user_email)
-                            self.config.user_display_name = user_data.get("display_name") or user_data.get("email", "Qobuz Member")
+                            self.config.user_display_name = user_data.get("display_name") or user_data.get("email", "Q-Buz Member")
                             cred = user_data.get("credential", {})
                             self.config.subscription_plan = cred.get("description", "Studio Master")
                             self.config.save()
-                            print(f"[Qobuz Auth] Verified successfully using App ID: {aid} ({lbl})")
+                            print(f"[Q-Buz Auth] Verified successfully using App ID: {aid} ({lbl})")
                             return user_data
                     else:
                         text = await resp.text()
@@ -327,15 +326,15 @@ class QobuzAPI:
                     if resp.status == 200:
                         self.config.app_id = aid
                         self.config.app_secret = asec
-                        self.config.user_display_name = self.config.user_display_name or "Qobuz Member"
+                        self.config.user_display_name = self.config.user_display_name or "Q-Buz Member"
                         self.config.subscription_plan = self.config.subscription_plan or "Studio Active"
                         self.config.save()
-                        print(f"[Qobuz Auth] Validated via search probe with App ID: {aid} ({lbl})")
+                        print(f"[Q-Buz Auth] Validated via search probe with App ID: {aid} ({lbl})")
                         return {"display_name": self.config.user_display_name}
             except Exception:
                 continue
 
-        print(f"[Qobuz Auth] Token verification failed across all candidate App IDs. Last error: {last_error}")
+        print(f"[Q-Buz Auth] Token verification failed across all candidate App IDs. Last error: {last_error}")
         return None
 
     # --- Catalog & Metadata Methods ---
@@ -502,11 +501,14 @@ class QobuzAPI:
             "offset": offset_clean
         }
         res = await self._api_request("catalog/search", params=params)
-        if isinstance(res, dict) and st_clean in res and isinstance(res[st_clean], dict):
-            items = res[st_clean].get("items", [])
-            for it in items:
-                it["_category"] = st_clean
-            res[st_clean]["items"] = self.rank_search_items(items, clean_q, search_type=st_clean)
+        if isinstance(res, dict):
+            for cat in ["tracks", "albums", "artists", "playlists"]:
+                if cat in res and isinstance(res[cat], dict):
+                    c_items = res[cat].get("items", [])
+                    for it in c_items:
+                        if isinstance(it, dict):
+                            it["_category"] = cat
+                    res[cat]["items"] = self.rank_search_items(c_items, clean_q, search_type=cat)
         return res
 
     async def smart_search(self, query, search_type="tracks", limit=30, offset=0):
@@ -639,8 +641,18 @@ class QobuzAPI:
         return await self._api_request("track/get", params={"track_id": str(track_id).strip()})
 
     async def get_album(self, album_id):
-        """Retrieves metadata and tracklist for an album."""
-        return await self._api_request("album/get", params={"album_id": str(album_id).strip()})
+        """Retrieves metadata and tracklist for an album, supporting both album ID and barcode."""
+        clean_id = str(album_id).strip()
+        try:
+            return await self._api_request("album/get", params={"album_id": clean_id})
+        except Exception as e:
+            # Fallback for barcodes / UPCs (e.g. 10 to 14 digits)
+            if clean_id.isdigit() and 10 <= len(clean_id) <= 14:
+                try:
+                    return await self._api_request("album/get", params={"barcode": clean_id})
+                except Exception:
+                    pass
+            raise e
 
     async def get_artist(self, artist_id):
         """Retrieves artist details and their discography."""
@@ -650,8 +662,40 @@ class QobuzAPI:
             return await self._api_request("artist/get", params={"artist_id": str(artist_id).strip(), "limit": 100})
 
     async def get_playlist(self, playlist_id):
-        """Retrieves playlist details and its tracks."""
-        return await self._api_request("playlist/get", params={"playlist_id": str(playlist_id).strip(), "limit": 500, "offset": 0})
+        """Retrieves playlist details and its tracks with automatic pagination."""
+        clean_id = str(playlist_id).strip()
+        # Q-Buz API v0.2 enforces limit <= 100 on playlist endpoints (limit > 100 returns HTTP 400 Bad Request)
+        res = await self._api_request("playlist/get", params={"playlist_id": clean_id, "limit": 100, "offset": 0})
+        if not isinstance(res, dict):
+            return res
+
+        tracks_data = res.get("tracks")
+        if isinstance(tracks_data, dict):
+            items = list(tracks_data.get("items", []))
+            total = tracks_data.get("total", len(items))
+            offset = len(items)
+
+            # Paginate if playlist has more than 100 tracks (safety cap up to 1000 tracks)
+            while offset < total and offset < 1000:
+                page_limit = min(100, total - offset)
+                try:
+                    page_res = await self._api_request(
+                        "playlist/get",
+                        params={"playlist_id": clean_id, "limit": page_limit, "offset": offset}
+                    )
+                    page_tracks = page_res.get("tracks", {}) if isinstance(page_res, dict) else {}
+                    page_items = page_tracks.get("items", []) if isinstance(page_tracks, dict) else []
+                    if not page_items:
+                        break
+                    items.extend(page_items)
+                    offset += len(page_items)
+                except Exception as e:
+                    print(f"[Q-Buz API] Error fetching playlist page at offset {offset}: {e}")
+                    break
+
+            tracks_data["items"] = items
+
+        return res
 
     # --- Hi-Res Stream URL Extraction ---
 
@@ -659,8 +703,9 @@ class QobuzAPI:
         """
         Retrieves the direct bit-perfect FLAC audio stream URL for a track.
         Handles format hierarchy: 27 (192kHz) -> 7 (96kHz) -> 6 (44.1kHz FLAC) -> 5 (MP3).
-        Automatically attempts candidate signing secrets if signature error occurs.
+        Validates candidate (app_id, app_secret) credentials across Web Client, Hardware Streamer, and Android.
         """
+        clean_track_id = str(track_id).strip()
         if preferred_format_id is None:
             preferred_format_id = self.config.format_id
 
@@ -674,110 +719,163 @@ class QobuzAPI:
         else:
             formats_to_try = [5]
 
-        # Candidate signing secrets to try
-        secrets_to_try = []
-        if self.config.app_secret:
-            secrets_to_try.append(self.config.app_secret)
+        # Prioritized list of candidate (app_id, app_secret) pairs
+        raw_pairs = []
 
-        fallback_secrets = [
+        # 1. Cached working stream pair from this session
+        if self._working_stream_pair and self._working_stream_pair[0] and self._working_stream_pair[1]:
+            raw_pairs.append(self._working_stream_pair)
+
+        # 2. Active Config pair (matches whichever client issued the user's session token)
+        if self.config.app_id and self.config.app_secret and self.config.app_id != "100000000":
+            raw_pairs.append((self.config.app_id, self.config.app_secret))
+
+        # 3. Active App ID with all candidate secrets
+        active_aid = self.config.app_id or "798273057"
+        for s in [
             "abb21364945c0583309667d13ca3d93a",
             "b27926955a50d249f3e46c76dbb4fc7d",
-            "e91240c345167dbdbef56e07a68e98ec",
-            "a4f3b764b82d029519398f6d2f7881be",
             "2143ea23b98e2133b3ff5f9218227b68",
             "59a35e40e87247fb4268e64c204c3cf7",
             "04c7a01662fb1d2003ea169994c65cd4",
             "ecb428d0999ae38d6df7244ab9db138e",
-        ]
-        for s in fallback_secrets:
-            if s not in secrets_to_try:
-                secrets_to_try.append(s)
+        ]:
+            raw_pairs.append((active_aid, s))
+
+        # 4. Official Hardware Streamer (Studio Master 24/192)
+        for s in [
+            "e28e9f3d71d274a605693111477d4fe2",
+            "29dc1e01d6c8ad9eee63b249bc6412d9",
+            "37ff1b4edefab5dfd5a03df9bafcd47d",
+            "4621c1a9386fc713174249a5b9da4e10",
+        ]:
+            raw_pairs.append(("579169010", s))
+
+        # 5. Alternate Web Player App ID
+        raw_pairs.append(("809633634", "b27926955a50d249f3e46c76dbb4fc7d"))
+        raw_pairs.append(("809633634", "abb21364945c0583309667d13ca3d93a"))
+
+        # 6. Android Client (Studio Master 24/192)
+        raw_pairs.append(("285431633", "a4f3b764b82d029519398f6d2f7881be"))
+
+        # 7. Desktop Hi-Res
+        raw_pairs.append(("579939560", "fa31fc13e7a28e7d70bb61e91aa9e178"))
+
+        # 8. iOS Client & Soundgenic
+        raw_pairs.append(("385651648", "b27926955a50d249f3e46c76dbb4fc7d"))
+        raw_pairs.append(("598925120", "b27926955a50d249f3e46c76dbb4fc7d"))
+
+        # Deduplicate while preserving order
+        unique_pairs = []
+        seen = set()
+        for aid, sec in raw_pairs:
+            if not aid or not sec or aid == "100000000":
+                continue
+            pk = (str(aid), str(sec))
+            if pk not in seen:
+                seen.add(pk)
+                unique_pairs.append(pk)
 
         last_error = None
-        for sec in secrets_to_try:
-            signature_failed = False
+        for aid, sec in unique_pairs:
+            pair_invalid = False
             for fmt in formats_to_try:
                 ts = str(int(time.time()))
-                raw_sig = f"trackgetFileUrlformat_id{fmt}intentstreamtrack_id{track_id}{ts}{sec}"
+                raw_sig = f"trackgetFileUrlformat_id{fmt}intentstreamtrack_id{clean_track_id}{ts}{sec}"
                 sig = hashlib.md5(raw_sig.encode("utf-8")).hexdigest()
                 params = {
-                    "track_id": str(track_id),
+                    "track_id": clean_track_id,
                     "format_id": str(fmt),
                     "intent": "stream",
                     "request_ts": ts,
-                    "request_sig": sig
+                    "request_sig": sig,
+                    "app_id": aid
                 }
+                if self.config.user_auth_token:
+                    params["user_auth_token"] = self.config.user_auth_token
+
                 try:
                     data = await self._api_request("track/getFileUrl", params=params, sign=False)
                     url = data.get("url")
                     if url:
-                        if sec != self.config.app_secret:
-                            self.config.app_secret = sec
-                            self.config.save()
-                            print(f"[Qobuz API] Switched to working stream signing secret: {sec[:6]}...")
+                        # Cache working stream pair in-memory for subsequent tracks
+                        self._working_stream_pair = (aid, sec)
                         return {
                             "url": url,
                             "format_id": fmt,
                             "mime_type": data.get("mime_type", "audio/flac"),
                             "sampling_rate": data.get("sampling_rate"),
                             "bit_depth": data.get("bit_depth"),
-                            "track_id": track_id
+                            "track_id": clean_track_id
                         }
                     else:
-                        last_error = data.get("message", "No stream URL returned.")
+                        last_error = data.get("message") or "No stream URL returned."
                 except Exception as e:
                     err_str = str(e)
                     last_error = err_str
-                    if "signature" in err_str.lower() or "request_sig" in err_str.lower():
-                        signature_failed = True
-                        break  # Wrong secret, skip remaining formats and try next candidate secret!
+                    err_low = err_str.lower()
+                    # If this client ID or signature is rejected, skip formats and try next pair immediately
+                    if any(w in err_low for w in ["signature", "request_sig", "app_id", "invalid app", "unauthorized"]):
+                        pair_invalid = True
+                        break
+                    # If format is unavailable for this track (e.g. 27 on CD-only release), try next format
                     continue
 
-            if not signature_failed and last_error and "signature" not in last_error.lower() and "request_sig" not in last_error.lower():
-                # If error is not a signature error (e.g. track geo-restricted or streamable:false), don't loop secrets
-                break
+            if pair_invalid:
+                continue
 
-        if signature_failed or (last_error and ("signature" in last_error.lower() or "request_sig" in last_error.lower())):
-            print("[Qobuz API] Stream signature failed with cached keys, auto-refreshing live web bundle secret...")
-            refreshed = await self.auto_refresh_app_credentials()
-            if refreshed and self.config.app_secret not in secrets_to_try:
-                sec = self.config.app_secret
-                for fmt in formats_to_try:
-                    ts = str(int(time.time()))
-                    raw_sig = f"trackgetFileUrlformat_id{fmt}intentstreamtrack_id{track_id}{ts}{sec}"
-                    sig = hashlib.md5(raw_sig.encode("utf-8")).hexdigest()
-                    params = {
-                        "track_id": str(track_id),
-                        "format_id": str(fmt),
-                        "intent": "stream",
-                        "request_ts": ts,
-                        "request_sig": sig
-                    }
-                    try:
-                        data = await self._api_request("track/getFileUrl", params=params, sign=False)
-                        url = data.get("url")
-                        if url:
-                            return {
-                                "url": url,
-                                "format_id": fmt,
-                                "mime_type": data.get("mime_type", "audio/flac"),
-                                "sampling_rate": data.get("sampling_rate"),
-                                "bit_depth": data.get("bit_depth"),
-                                "track_id": track_id
-                            }
-                    except Exception as e:
-                        last_error = str(e)
+        # Dynamic fallback: If all static candidate pairs failed, scrape live credentials from web player
+        try:
+            from .bundle_scraper import scrape_qobuz_web_credentials
+            scraped = await scrape_qobuz_web_credentials(timeout_sec=10)
+            if scraped and scraped.get("app_id") and scraped.get("app_secret"):
+                s_aid = scraped["app_id"]
+                s_sec = scraped["app_secret"]
+                if (s_aid, s_sec) not in seen:
+                    for fmt in formats_to_try:
+                        ts = str(int(time.time()))
+                        raw_sig = f"trackgetFileUrlformat_id{fmt}intentstreamtrack_id{clean_track_id}{ts}{s_sec}"
+                        sig = hashlib.md5(raw_sig.encode("utf-8")).hexdigest()
+                        params = {
+                            "track_id": clean_track_id,
+                            "format_id": str(fmt),
+                            "intent": "stream",
+                            "request_ts": ts,
+                            "request_sig": sig,
+                            "app_id": s_aid
+                        }
+                        if self.config.user_auth_token:
+                            params["user_auth_token"] = self.config.user_auth_token
+                        try:
+                            data = await self._api_request("track/getFileUrl", params=params, sign=False)
+                            url = data.get("url")
+                            if url:
+                                self._working_stream_pair = (s_aid, s_sec)
+                                return {
+                                    "url": url,
+                                    "format_id": fmt,
+                                    "mime_type": data.get("mime_type", "audio/flac"),
+                                    "sampling_rate": data.get("sampling_rate"),
+                                    "bit_depth": data.get("bit_depth"),
+                                    "track_id": clean_track_id
+                                }
+                        except Exception as ex:
+                            last_error = str(ex)
+                            continue
+        except Exception:
+            pass
 
-        raise Exception(f"Unable to retrieve audio stream URL for track {track_id}: {last_error}")
+        raise Exception(f"Unable to retrieve audio stream URL for track {clean_track_id}: {last_error}")
     
     async def get_preview_url(self, track_id):
         """
         Retrieves a 30-second sample/preview stream URL for a track.
         Works across all user subscription tiers including non-subscribers.
         """
+        clean_track_id = str(track_id).strip()
         # 1. Try track metadata preview/sample URL if present
         try:
-            track_meta = await self.get_track(track_id)
+            track_meta = await self.get_track(clean_track_id)
             if isinstance(track_meta, dict):
                 sample_url = track_meta.get("preview_url") or track_meta.get("sample_url")
                 if sample_url:
@@ -785,20 +883,42 @@ class QobuzAPI:
         except Exception:
             pass
 
-        # 2. Request 128/320kbps MP3 stream using intent='sample' or fallback to stream
+        # 2. Request MP3 stream using intent='sample' or fallback to stream
         ts = str(int(time.time()))
-        secrets_to_try = [s for s in [self.config.app_secret, "abb21364945c0583309667d13ca3d93a", "b27926955a50d249f3e46c76dbb4fc7d"] if s]
-        for sec in secrets_to_try:
+        stream_cands = []
+        if self._working_stream_pair:
+            stream_cands.append(self._working_stream_pair)
+        if self.config.app_id and self.config.app_secret:
+            stream_cands.append((self.config.app_id, self.config.app_secret))
+        stream_cands.extend([
+            ("798273057", "abb21364945c0583309667d13ca3d93a"),
+            ("579169010", "e28e9f3d71d274a605693111477d4fe2"),
+            ("285431633", "a4f3b764b82d029519398f6d2f7881be"),
+            ("579939560", "fa31fc13e7a28e7d70bb61e91aa9e178"),
+            ("385651648", "b27926955a50d249f3e46c76dbb4fc7d"),
+        ])
+
+        seen_sc = set()
+        dedup_cands = []
+        for a, s in stream_cands:
+            if (a, s) not in seen_sc:
+                seen_sc.add((a, s))
+                dedup_cands.append((a, s))
+
+        for aid, sec in dedup_cands:
             for intent in ["sample", "stream"]:
-                raw_sig = f"trackgetFileUrlformat_id5intent{intent}track_id{track_id}{ts}{sec}"
+                raw_sig = f"trackgetFileUrlformat_id5intent{intent}track_id{clean_track_id}{ts}{sec}"
                 sig = hashlib.md5(raw_sig.encode("utf-8")).hexdigest()
                 params = {
-                    "track_id": str(track_id),
+                    "track_id": clean_track_id,
                     "format_id": "5",
                     "intent": intent,
                     "request_ts": ts,
-                    "request_sig": sig
+                    "request_sig": sig,
+                    "app_id": aid
                 }
+                if self.config.user_auth_token:
+                    params["user_auth_token"] = self.config.user_auth_token
                 try:
                     data = await self._api_request("track/getFileUrl", params=params, sign=False)
                     if data and data.get("url"):
@@ -808,7 +928,7 @@ class QobuzAPI:
 
         # 3. Fallback to standard get_file_url format 5
         try:
-            info = await self.get_file_url(track_id, preferred_format_id=5)
+            info = await self.get_file_url(clean_track_id, preferred_format_id=5)
             return info.get("url")
         except Exception:
             return None

@@ -67,20 +67,25 @@ class DownloadManager:
         val = max(1, min(int(new_val), 5))
         self.semaphore = asyncio.Semaphore(val)
 
-    async def download_track(self, track_id, progress_callback=None, task_state=None, parent_folder=None):
+    async def download_track(self, track_id, progress_callback=None, task_state=None, parent_folder=None, track_meta=None):
         """Downloads a track at maximum available bit-depth/sample rate, writes tags, and embeds artwork."""
         async with self.semaphore:
             if self.is_cancelled or (task_state and task_state.get("is_cancelled")):
                 return False, "Cancelled", None
 
-            # 1. Fetch metadata
-            try:
-                track_meta = await self.api.get_track(track_id)
-            except Exception as e:
-                err_msg = str(e)
-                if "404" in err_msg or "No result matching" in err_msg:
-                    return False, f"Track delisted / unavailable on Qobuz (404)", None
-                return False, f"Metadata lookup failed: {err_msg[:60]}", None
+            clean_tid = str(track_id).strip()
+            if not clean_tid.isdigit():
+                return False, f"Invalid track ID '{clean_tid}' (album ID detected, cannot stream album directly)", None
+
+            # 1. Fetch metadata if not already supplied
+            if not track_meta or not isinstance(track_meta, dict):
+                try:
+                    track_meta = await self.api.get_track(track_id)
+                except Exception as e:
+                    err_msg = str(e)
+                    if "404" in err_msg or "No result matching" in err_msg:
+                        return False, f"Track delisted / unavailable on Q-Buz (404)", None
+                    return False, f"Metadata lookup failed: {err_msg[:60]}", None
 
             if not track_meta or not isinstance(track_meta, dict):
                 return False, f"Could not retrieve track metadata for ID {track_id}", None
@@ -145,11 +150,13 @@ class DownloadManager:
                     return False, "Server returned empty stream URL", None
             except Exception as e:
                 err_s = str(e)
+                print(f"[Stream Error] Track {track_id}: {err_s}")
                 if "404" in err_s:
                     return False, "Stream not found on server (404 / Geo-restricted)", None
                 elif "401" in err_s or "403" in err_s or "user_auth_token" in err_s.lower():
                     return False, "Unauthorized stream (Token expired / Login needed)", None
-                return False, f"Stream request failed: {err_s[:50]}", None
+                clean_err = re.sub(r"^Unable to retrieve audio stream URL for track [^:]+:\s*", "", err_s).strip()
+                return False, f"Stream failed: {clean_err[:45]}", None
 
             fmt_id = stream_info.get("format_id", self.config.format_id)
             ext = "flac" if fmt_id in [27, 7, 6] else "mp3"
@@ -247,7 +254,6 @@ class DownloadManager:
                     dl_headers["Range"] = f"bytes={downloaded_bytes}-"
                     file_mode = "ab"
                 else:
-                    dl_headers["Range"] = "bytes=0-"
                     file_mode = "wb"
 
                 stream_timeout = aiohttp.ClientTimeout(total=None, sock_read=45, sock_connect=15)
@@ -382,6 +388,7 @@ class DownloadManager:
 
             # Concurrency-safe folder operations: cover.jpg and Digital Booklet.pdf (A 1)
             if parent_folder:
+                os.makedirs(parent_folder, exist_ok=True)
                 folder_lock = self._get_folder_lock(parent_folder)
                 async with folder_lock:
                     # Save folder artwork cover.jpg for audiophile library browsers
@@ -395,12 +402,34 @@ class DownloadManager:
                             print(f"Failed to write album cover.jpg: {e}")
 
                     # Download Official Digital Booklet PDF if available in album goodies (A 1)
-                    if album_meta.get("goodies"):
+                    goodies = album_meta.get("goodies")
+                    if not goodies and album_meta.get("id"):
                         try:
-                            for goody in album_meta["goodies"]:
+                            full_alb = await self.api.get_album(album_meta["id"])
+                            if isinstance(full_alb, dict) and full_alb.get("goodies"):
+                                goodies = full_alb["goodies"]
+                        except Exception:
+                            pass
+
+                    if goodies:
+                        try:
+                            for goody in goodies:
                                 g_url = goody.get("url")
                                 g_name = goody.get("name") or goody.get("original_filename") or "Digital Booklet.pdf"
-                                if g_url and (".pdf" in g_url.lower() or ".pdf" in g_name.lower()):
+                                g_mime = str(goody.get("mime_type") or "").lower()
+                                g_desc = str(goody.get("description") or "").lower()
+                                
+                                is_pdf_goody = (
+                                    ".pdf" in str(g_url).lower()
+                                    or ".pdf" in str(g_name).lower()
+                                    or "booklet" in str(g_name).lower()
+                                    or "livret" in str(g_name).lower()
+                                    or "booklet" in g_desc
+                                    or "pdf" in g_mime
+                                    or str(goody.get("file_format_id")) in ["21", "22"]
+                                )
+
+                                if g_url and is_pdf_goody:
                                     pdf_filename = sanitize_filename(g_name)
                                     if not pdf_filename.lower().endswith(".pdf"):
                                         pdf_filename += ".pdf"
@@ -411,6 +440,7 @@ class DownloadManager:
                                                 with open(pdf_path, "wb") as bf:
                                                     async for chunk in b_resp.content.iter_chunked(128 * 1024):
                                                         bf.write(chunk)
+                                                print(f"[Q-Buz Downloader] Downloaded Digital Booklet: {pdf_filename}")
                         except Exception as e:
                             print(f"Failed to write digital booklet PDF: {e}")
 
@@ -465,7 +495,7 @@ class DownloadManager:
                         sr_tag = f"{int(s_fl)}kHz" if s_fl.is_integer() else f"{s_fl}kHz"
                     except Exception:
                         sr_tag = f"{sample_rate}kHz"
-                    spec_tag = f"Qobuz Studio Master • {bit_depth}-bit/{sr_tag}"
+                    spec_tag = f"Q-Buz Studio Master • {bit_depth}-bit/{sr_tag}"
                     audio["COMMENT"] = spec_tag
 
                     # Embed Vorbis lyrics
@@ -513,7 +543,7 @@ class DownloadManager:
                     genre = album_meta.get("genre", {}).get("name") if isinstance(album_meta.get("genre"), dict) else None
                     if genre:
                         audio.add(TCON(encoding=3, text=str(genre)))
-                    audio.add(COMM(encoding=3, lang="eng", desc="", text="Qobuz Studio Master"))
+                    audio.add(COMM(encoding=3, lang="eng", desc="", text="Q-Buz Studio Master"))
                     if cover_data:
                         audio.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Cover", data=cover_data))
                     if lyrics_info and (lyrics_info.get("plain") or lyrics_info.get("synced")):
